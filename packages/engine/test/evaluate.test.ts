@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Card } from "../src/cards.js";
-import { bestHigh, bestLow8, evaluate5 } from "../src/evaluate.js";
+import { bestHigh, bestLow8, evaluate5 , bestLowAny } from "../src/evaluate.js";
 
 const c = (s: string): Card[] => s.split(" ").filter(Boolean) as Card[];
 const e = (s: string): number => evaluate5(c(s));
@@ -245,5 +245,29 @@ describe("bestLow8 Omaha", () => {
   });
   it("5-card Omaha picks the lowest combo", () => {
     expect(L("Ah 7d 8c Ks Qd", "2s 3h 4d Jc Jd", true)?.name).toBe("7-4-3-2-A");
+  });
+});
+
+describe("bestLowAny (no qualifier, ace-to-five)", () => {
+  const low = (hole: string[], board: string[]) => bestLowAny(hole as never, board as never, false)!;
+  it("ignores straights and flushes", () => {
+    expect(low(["Ah", "2h"], ["3h", "4h", "5h", "Kc", "Kd"]).name).toBe("5-4-3-2-A");
+  });
+  it("plays high cards when it must, with no 8 qualifier", () => {
+    expect(low(["Kh", "Qd"], ["Jc", "9s", "Th", "Kc", "Qs"]).name).toBe("K-Q-J-T-9");
+  });
+  it("ranks any no-pair hand below any pair", () => {
+    const noPair = low(["Kh", "Qd"], ["Jc", "9s", "Th", "2c", "2d"]);
+    const pair = low(["2h", "3d"], ["2c", "3s", "4h", "3c", "2s"]);
+    expect(noPair.score).toBeLessThan(pair.score);
+  });
+  it("compares pairs by the pair first, then kickers", () => {
+    const a = low(["2h", "2d"], ["9c", "8s", "7h", "9d", "8d"]); // pair of 2s: 9-8-7-2-2
+    const b = low(["3h", "3d"], ["4c", "5s", "6h", "3c", "4d"]); // pair of 3s: 6-5-4-3-3
+    expect(a.score).toBeLessThan(b.score);
+  });
+  it("uses the Omaha 2+3 rule when asked", () => {
+    const r = bestLowAny(["Ah", "2d", "Kc", "Kd"] as never, ["3c", "4s", "5h", "Qd", "Js"] as never, true)!;
+    expect(r.name).toBe("5-4-3-2-A");
   });
 });

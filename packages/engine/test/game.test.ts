@@ -771,10 +771,10 @@ describe("hi/lo splits (plo4-8)", () => {
 
 // ---------- Hold'em Hi/Lo ----------
 
-describe("Hold'em Hi/Lo (8 or better)", () => {
+describe("Hold'em Hi/Lo (no qualifier)", () => {
   it("splits high and low using any five of seven cards", () => {
     let s = newHand({
-      variant: "nlhe-8",
+      variant: "nlhe-hilo",
       stacks: { 0: 100, 1: 100 },
       button: 0,
       holes: { 0: ["Ah", "2c"], 1: ["Kd", "Ks"] },
@@ -788,9 +788,9 @@ describe("Hold'em Hi/Lo (8 or better)", () => {
     expect(low).toMatchObject({ playerId: "p0", amount: 2, handName: "8-4-3-2-A" });
   });
 
-  it("lets the high hand scoop when no low qualifies", () => {
+  it("always splits: a queen-high low still wins the low half", () => {
     let s = newHand({
-      variant: "nlhe-8",
+      variant: "nlhe-hilo",
       stacks: { 0: 100, 1: 100 },
       button: 0,
       holes: { 0: ["Ah", "2c"], 1: ["Kd", "Ks"] },
@@ -798,6 +798,8 @@ describe("Hold'em Hi/Lo (8 or better)", () => {
     });
     s = seq(s, [[0, CALL], [1, CHECK]]);
     const out = done(checkdown(s));
-    expect(out.winners).toEqual([expect.objectContaining({ playerId: "p1", amount: 4, half: "whole" })]);
+    expect(out.winners.find((w) => w.half === "high")).toMatchObject({ playerId: "p1", amount: 2 });
+    // p1 holds KK on a K-Q-J-9-9 board and can't avoid a pair; p0's Q-J-9-2-A is lower.
+    expect(out.winners.find((w) => w.half === "low")).toMatchObject({ playerId: "p0", amount: 2, handName: "Q-J-9-2-A" });
   });
 });

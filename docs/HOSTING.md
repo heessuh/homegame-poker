@@ -21,7 +21,7 @@ Use the game dropdown in the top bar. If no hand is running, the game changes ri
 
 In the **Host** tab, under **Settings**, you can change:
 
-- **Variant**: No-Limit Hold’em, Pot-Limit Omaha (4 or 5 cards), or the Hi/Lo 8-or-better versions of Hold’em and both Omahas.
+- **Variant**: No-Limit Hold’em, Pot-Limit Omaha (4 or 5 cards), or Hold’em Hi/Lo (no qualifier), or the Omaha Hi/Lo 8-or-better versions.
 - **Small blind** and **Big blind**.
 - **Max seats**: 2 to 10 for four-card games, 2 to 8 for five-card games.
 - **Action timer**: seconds per action, or 0 to turn it off. Allowed values are 0 or 10 to 120.

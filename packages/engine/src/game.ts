@@ -2,7 +2,7 @@
 import type { Card } from "./cards.js";
 import { VARIANTS, type VariantId } from "./variants.js";
 import type { LegalActions, Phase, PlayerAction, PotView, WinnerView } from "./protocol.js";
-import { bestHigh, bestLow8, type HighResult, type LowResult } from "./evaluate.js";
+import { bestHigh, bestLow8, bestLowAny, type HighResult, type LowResult } from "./evaluate.js";
 
 export interface HandSeatInput {
   seat: number;
@@ -474,7 +474,8 @@ function resolveShowdown(s: HandState): void {
   for (const p of live) {
     shown[p.playerId] = [...p.holeCards];
     highs.set(p.playerId, bestHigh(p.holeCards, s.board, v.mustUseTwoHole));
-    lows.set(p.playerId, v.hiLo ? bestLow8(p.holeCards, s.board, v.mustUseTwoHole) : null);
+    const lowFn = v.lowRule === "any" ? bestLowAny : bestLow8;
+    lows.set(p.playerId, v.hiLo ? lowFn(p.holeCards, s.board, v.mustUseTwoHole) : null);
     s.log.push(`${name(p)} shows ${fmtCards(p.holeCards)}: ${(highs.get(p.playerId) as HighResult).name}`);
   }
 

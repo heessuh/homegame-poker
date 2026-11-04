@@ -23,7 +23,7 @@ const PLURAL: Record<number, string> = {
   2: "Twos", 3: "Threes", 4: "Fours", 5: "Fives", 6: "Sixes", 7: "Sevens", 8: "Eights",
   9: "Nines", 10: "Tens", 11: "Jacks", 12: "Queens", 13: "Kings", 14: "Aces",
 };
-const LOW_LABEL: Record<number, string> = { 1: "A", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8" };
+const LOW_LABEL: Record<number, string> = { 1: "A", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "T", 11: "J", 12: "Q", 13: "K" };
 
 function rankOf(c: Card): number {
   return RANK_VALUE[c[0] as string] as number;
@@ -136,6 +136,35 @@ export function bestHigh(hole: Card[], board: Card[], mustUseTwoHole: boolean): 
   }
   if (!best) throw new Error("not enough cards to make a five-card hand");
   return { score: best.score, name: best.name, cards: best.cards };
+}
+
+/**
+ * Ace-to-five low with no qualifier: aces are low, straights and flushes don't count,
+ * pairs do (any no-pair hand beats any pair). LOWER score wins. Null only without five cards.
+ */
+export function bestLowAny(hole: Card[], board: Card[], mustUseTwoHole: boolean): LowResult | null {
+  let best: LowResult | null = null;
+  for (const c of candidates(hole, board, mustUseTwoHole)) {
+    const lows = c.map((x) => {
+      const r = rankOf(x);
+      return r === 14 ? 1 : r;
+    });
+    const counts = new Map<number, number>();
+    for (const r of lows) counts.set(r, (counts.get(r) ?? 0) + 1);
+    // Bigger groups first (they decide how bad the hand is), then higher ranks first.
+    const groups = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+    const shape = groups.map((g) => g[1]).join("");
+    const category = ["11111", "2111", "221", "311", "32", "41"].indexOf(shape);
+    let score = category * 16 ** 5;
+    groups.forEach(([r], i) => {
+      score += r * 16 ** (4 - i);
+    });
+    if (!best || score < best.score) {
+      const sorted = [...lows].sort((a, b) => b - a);
+      best = { score, name: sorted.map((r) => LOW_LABEL[r]).join("-"), cards: c };
+    }
+  }
+  return best;
 }
 
 export function bestLow8(hole: Card[], board: Card[], mustUseTwoHole: boolean): LowResult | null {
