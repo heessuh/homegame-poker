@@ -83,7 +83,7 @@ jobs:
         include:
           # stream: the raw HMAC stream across many seeds. decks: Lehmer-rank bits of derived decks (slower to generate).
           - { mode: stream, tlmax: 16GB }
-          - { mode: decks, tlmax: 128MB }
+          - { mode: decks, tlmax: 512MB }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

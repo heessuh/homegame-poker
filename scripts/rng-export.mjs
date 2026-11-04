@@ -49,17 +49,26 @@ export function shuffleWithJ(serverSeedHex, material) {
   return { deck, js };
 }
 
-// Only used to choose hand shapes (table id, player count, ...), never as tested output.
-const rnd = (n) => randomBytes(4).readUInt32LE() % n;
+// Pooled CSPRNG bytes (one randomBytes syscall per 64 KiB). Server seeds and client seeds come straight from
+// here; the tested output is HMAC output keyed by those seeds.
+let pool = Buffer.alloc(0), pos = 0;
+function take(n) {
+  if (pos + n > pool.length) { pool = randomBytes(65536); pos = 0; }
+  const out = pool.subarray(pos, pos + n);
+  pos += n;
+  return out;
+}
+// Only used to choose hand shapes (table id, player count, hand number), never as tested output.
+const rnd = (n) => take(4).readUInt32LE() % n;
 const ALPH = "abcdefghijklmnopqrstuvwxyz0123456789";
-const rid = (len) => Array.from(randomBytes(len), (b) => ALPH[b % ALPH.length]).join("");
+const rid = (len) => { let s = ""; for (const b of take(len)) s += ALPH[b % ALPH.length]; return s; };
 
 /** A realistic hand: fresh server seed, material with 0-9 players' client seeds. */
 export function randomHand() {
-  const seed = randomBytes(32).toString("hex");
+  const seed = take(32).toString("hex");
   const seeds = {};
   const players = rnd(10);
-  for (let p = 0; p < players; p++) seeds[`p${rid(6)}`] = randomBytes(16).toString("hex");
+  for (let p = 0; p < players; p++) seeds[`p${rid(6)}`] = take(16).toString("hex");
   const material = buildMaterial(`t${rid(5)}`, 1 + rnd(5000), seeds);
   return { seed, material };
 }
