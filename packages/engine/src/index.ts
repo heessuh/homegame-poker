@@ -1,3 +1,6 @@
 export * from "./cards.js";
 export * from "./shuffle.js";
 export * from "./variants.js";
+export * from "./protocol.js";
+export * from "./evaluate.js";
+export * from "./game.js";

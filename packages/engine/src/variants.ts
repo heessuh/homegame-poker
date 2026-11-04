@@ -15,7 +15,7 @@ export interface Variant {
 export const VARIANTS: Record<VariantId, Variant> = {
   nlhe: { id: "nlhe", name: "No-Limit Texas Hold'em", holeCards: 2, mustUseTwoHole: false, betting: "no-limit", hiLo: false, maxPlayers: 10 },
   plo4: { id: "plo4", name: "Pot-Limit Omaha High", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, maxPlayers: 10 },
-  plo5: { id: "plo5", name: "5-Card Pot-Limit Omaha High", holeCards: 5, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, maxPlayers: 9 },
+  plo5: { id: "plo5", name: "5-Card Pot-Limit Omaha High", holeCards: 5, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, maxPlayers: 8 },
   "plo4-8": { id: "plo4-8", name: "Pot-Limit Omaha Hi/Lo (8 or better)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: true, maxPlayers: 10 },
-  "plo5-8": { id: "plo5-8", name: "5-Card Pot-Limit Omaha Hi/Lo (8 or better)", holeCards: 5, mustUseTwoHole: true, betting: "pot-limit", hiLo: true, maxPlayers: 9 },
+  "plo5-8": { id: "plo5-8", name: "5-Card Pot-Limit Omaha Hi/Lo (8 or better)", holeCards: 5, mustUseTwoHole: true, betting: "pot-limit", hiLo: true, maxPlayers: 8 },
 };
