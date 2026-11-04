@@ -262,17 +262,17 @@ jobs:
               p, k, m = (float(p) if p[0] != "-" else 1.0), int(k), int(m)  # "----": too few sequences for a uniformity test
               if k / m < accept(m): below.append((name, k, m, p))
               if k / m < 0.90: gross.append((name, k, m, p))
-              if p < 1e-5: unif.append((name, k, m, p))
+              if p < 1e-4: unif.append((name, k, m, p))
           allowed = max(1, math.ceil(0.05 * len(rows)))
           summ.write(f"## NIST SP 800-22 ({mode}): 100 sequences x 1,000,000 bits\n\n")
-          summ.write(f"| result rows | below acceptance proportion | proportion < 90% | uniformity p < 1e-5 |\n|---:|---:|---:|---:|\n")
+          summ.write(f"| result rows | below acceptance proportion | proportion < 90% | uniformity p < 1e-4 |\n|---:|---:|---:|---:|\n")
           summ.write(f"| {len(rows)} | {len(below)} | {len(gross)} | {len(unif)} |\n\n")
           summ.write("Acceptance proportion for 100 sequences is about 0.9602. By chance a small number of rows land just below it, "
-                     "so the job fails only if any row is below 90%, any uniformity p-value is below 1e-5, "
+                     "so the job fails only if any row is below 90%, any uniformity p-value is below 1e-4, "
                      f"or more than {allowed} rows (5%) are below the acceptance proportion.\n\n")
           if below:
               summ.write("```\n" + "\n".join(f"{n}: {k}/{m} (uniformity p={p})" for n, k, m, p in below) + "\n```\n")
-          print(f"NIST ({mode}): {len(rows)} rows, {len(below)} below acceptance (allowed {allowed}), {len(gross)} below 90%, {len(unif)} uniformity p < 1e-5")
+          print(f"NIST ({mode}): {len(rows)} rows, {len(below)} below acceptance (allowed {allowed}), {len(gross)} below 90%, {len(unif)} uniformity p < 1e-4")
           for n, k, m, p in below: print(f"  below acceptance: {n}: {k}/{m} (uniformity p={p})")
           bad = bool(gross) or bool(unif) or len(below) > allowed
           if bad: print("NIST gate failed"); sys.exit(1)
