@@ -228,6 +228,28 @@ export interface HandFair {
   material: string;
 }
 
+/** The all-in moment of a board-game hand: betting closed with cards to come and no further decisions possible. */
+export interface RunoutSnapshot {
+  /** Community cards showing at that moment (0 = preflop, 3 = flop, 4 = turn). */
+  boardLen: number;
+  /** Players still in the hand (all of them show down). */
+  live: string[];
+  /** The pots the showdown will use; uncalled chips already returned. */
+  pots: PotView[];
+}
+
+/**
+ * What the luck report needs to rebuild a board-game deal exactly from `reveal.deck`.
+ * Deal: one card at a time to each player in `dealOrder` (starting left of the button), repeated `holeCards` times;
+ * then burn 1 + flop 3, burn 1 + turn, burn 1 + river. Absent on records made before it existed.
+ */
+export interface HandLuckData {
+  v: 1;
+  /** Everyone dealt in, in the order they received cards. */
+  dealOrder: string[];
+  runout?: RunoutSnapshot;
+}
+
 export interface HandRecord {
   handNumber: number;
   variant: VariantId;
@@ -242,6 +264,8 @@ export interface HandRecord {
   shown: Record<string, Card[]>;
   names: Record<string, string>;
   endedAt: number;
+  /** Data for the luck report (board games only); older records lack it and are skipped there. */
+  luck?: HandLuckData;
 }
 
 export interface PendingAward {
@@ -399,5 +423,45 @@ export interface RngAuditReport {
    * All testable lenses combined (Bonferroni: smallest p-value × number of lenses tested), so that running
    * several checks at once doesn't make a fair deck look "unusual" by chance. Null until any lens is testable.
    */
+  overall: { verdict: RngAuditVerdict; pValue: number; tested: number } | null;
+  /** Per-player luck (table scope only): who was dealt the best hands, and all-in luck. */
+  luck?: LuckReport;
+}
+
+/** One row of the luck report. Money is in cents. Only aggregates: no cards of any hand. */
+export interface LuckPlayerRow {
+  playerId: string;
+  name: string;
+  handsDealt: number;
+  /** Hands in which this player held the best river hand (a tie counts as a share). */
+  timesBest: number;
+  /** Sum of 1/n over the hands dealt: what a fair shuffle gives. */
+  expectedBest: number;
+  bestZ: number | null;
+  bestP: number | null;
+  bestVerdict: RngAuditVerdict;
+  /** Hands where money went in with cards still to come and at least two players contested a pot. */
+  allInHands: number;
+  allInExpected: number;
+  allInActual: number;
+  allInZ: number | null;
+  allInP: number | null;
+  allInVerdict: RngAuditVerdict;
+  /** The worse of the two verdicts, adjusted for the number of checks run. */
+  verdict: RngAuditVerdict;
+}
+
+export interface LuckReport {
+  /** Board-game hands that were usable. */
+  hands: number;
+  /** Hands left out: 5-Murder (stud), records made before the luck data existed, unusable records. */
+  skipped: { stud: number; old: number; bad: number };
+  allInHands: number;
+  minDealt: number;
+  minAllInHands: number;
+  players: LuckPlayerRow[];
+  /** Chi-square across players of the best-hand counts. */
+  table: { chiSquare: number; df: number; pValue: number; verdict: RngAuditVerdict } | null;
+  /** All checks together, Bonferroni-adjusted like the main audit. */
   overall: { verdict: RngAuditVerdict; pValue: number; tested: number } | null;
 }

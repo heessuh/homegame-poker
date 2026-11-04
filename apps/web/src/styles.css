@@ -505,3 +505,11 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .bar-fine { font-size: 11.5px; }
 .lens-fine { margin: 10px 0 0; font-variant-numeric: tabular-nums; }
 .lens-more summary { cursor: pointer; color: var(--gold); font-size: 13px; margin-bottom: 8px; }
+
+.luck-wrap { overflow-x: auto; margin: 8px 0; }
+.luck-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.luck-table th, .luck-table td { padding: 6px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.luck-table thead th { font-size: 11px; color: var(--muted); font-weight: 600; }
+.luck-table tbody th { font-weight: 600; white-space: nowrap; }
+.luck-table .neg { color: var(--badtx); }
+.luck-table .pos { color: var(--ok); }

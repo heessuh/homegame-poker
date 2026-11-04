@@ -1,7 +1,7 @@
 import * as nodeFs from "node:fs/promises";
 import { join } from "node:path";
 import {
-  addHandToCounts, buildReport, emptyCounts, isAuditCounts,
+  addHandToCounts, buildLuckReport, handLuck, buildReport, emptyCounts, isAuditCounts,
   type AuditCounts, type HandRecord, type RngAuditReport,
 } from "@homegame/engine";
 import type { FsLike } from "./persist.js";
@@ -86,13 +86,15 @@ export class RngAudit {
   }
 
   /** Counts one finished hand unless it was counted before. Returns true when it was new. */
-  record(tableId: string, rec: HandRecord): boolean {
+  record(tableId: string, rec: HandRecord, warm = true): boolean {
     const key = keyOf(rec.handNumber, rec.endedAt);
     let set = this.seen.get(tableId);
     if (set?.has(key)) return false;
     if (!addHandToCounts(this.counts, rec)) return false;
     if (!set) this.seen.set(tableId, (set = new Set()));
     set.add(key);
+    // Do the luck math (cached on the record) now, a few milliseconds per hand, so the Fairness tab opens instantly.
+    if (warm) try { handLuck(rec); } catch (e) { console.error("luck precompute failed", e); }
     this.markDirty();
     return true;
   }
@@ -100,7 +102,7 @@ export class RngAudit {
   /** Counts every not-yet-counted hand in a restored table's history. Returns how many were new. */
   backfill(tableId: string, history: readonly HandRecord[]): number {
     let added = 0;
-    for (const rec of history) if (this.record(tableId, rec)) added++;
+    for (const rec of history) if (this.record(tableId, rec, false)) added++;
     return added;
   }
 
@@ -121,7 +123,7 @@ export class RngAudit {
         if (rec.endedAt < first) first = rec.endedAt;
       }
     }
-    return buildReport(c, "table", new Date(Number.isFinite(first) ? first : this.o.now()).toISOString());
+    return { ...buildReport(c, "table", new Date(Number.isFinite(first) ? first : this.o.now()).toISOString()), luck: buildLuckReport(history) };
   }
 
   private markDirty(): void {

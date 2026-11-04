@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { RngAuditLens, RngAuditReport, RngAuditRow, RngAuditScope, RngAuditVerdict } from "@homegame/engine";
+import type { LuckPlayerRow, LuckReport, RngAuditLens, RngAuditReport, RngAuditRow, RngAuditScope, RngAuditVerdict } from "@homegame/engine";
 import type { Send } from "./App";
+import { fmt } from "./util";
 
 const VERDICT_TEXT: Record<RngAuditVerdict, { badge: string; sentence: string }> = {
   fair: { badge: "Fair", sentence: "consistent with a fair shuffle." },
@@ -76,6 +77,7 @@ export function RngAudit({ send, handCount }: { send: Send; handCount: number })
               <p>Not enough hands yet to say anything. Keep playing; the audit fills in as hands are dealt.</p>
             </section>
           )}
+          {shown.scope === "table" && shown.luck && <Luck luck={shown.luck} />}
           {shown.lenses.map((l) => <Lens key={l.id} lens={l} hands={shown.hands} />)}
         </>
       )}
@@ -138,5 +140,95 @@ function Bar({ row }: { row: RngAuditRow }) {
         95% range {pct(lo)} to {pct(hi)}{row.note ? ` · ${row.note}` : ""}
       </div>
     </div>
+  );
+}
+
+const signed = (cents: number) => (cents < 0 ? "-" : "+") + fmt(Math.abs(cents));
+
+function bestSentence(r: LuckPlayerRow, min: number): string {
+  if (r.bestZ === null) return r.handsDealt < min ? "Not enough hands yet" : "Not enough hands yet to judge";
+  if (r.bestVerdict === "fair") return "About what chance gives";
+  return r.bestZ > 0 ? "Dealt the best hand more often than chance" : "Dealt the best hand less often than chance";
+}
+
+function allInSentence(r: LuckPlayerRow, min: number): string {
+  if (r.allInHands === 0) return "No all-ins yet";
+  if (r.allInZ === null) return r.allInHands < min ? "Not enough all-ins yet" : "Not enough data yet";
+  if (r.allInVerdict === "fair") return "About what chance gives";
+  return r.allInZ > 0 ? "Won more than the cards deserved" : "Won less than the cards deserved";
+}
+
+/** Per-player luck: who was dealt the best hands, and how all-in showdowns went against the odds. */
+function Luck({ luck }: { luck: LuckReport }) {
+  const o = luck.overall;
+  const none = luck.hands < luck.minDealt;
+  const skipped = luck.skipped.stud + luck.skipped.old + luck.skipped.bad;
+  return (
+    <section className={`lens luck ${o ? o.verdict : "too-few-hands"}`} aria-label="Is anyone getting better cards?">
+      <div className="lens-head">
+        <h4>Is anyone getting better cards?</h4>
+        <span className={`vbadge ${o ? o.verdict : "too-few-hands"}`}>{o ? VERDICT_TEXT[o.verdict].badge : "Not enough hands yet"}</span>
+      </div>
+      <p className="lens-says">
+        Every hand reveals its deck, so we can rebuild what each player was dealt, folded hands included, and ask whose hand would have been best if
+        nobody had folded. With 6 players dealt in, each should be best about 1 hand in 6; that is the “expected” number. Real results wander around it,
+        and with only a few dozen hands they wander a lot, so one player being ahead for a while is normal. Only totals are shown here, never anyone’s cards.
+      </p>
+      {none ? (
+        <p className="muted">Not enough hands yet. This needs at least {luck.minDealt} board-game hands ({num(luck.hands)} so far).</p>
+      ) : (
+        <>
+          <div className="luck-wrap">
+            <table className="luck-table">
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th title="Hands dealt in">Hands</th>
+                  <th title="Hands where this player held the best hand at a river showdown (ties share)">Best hand: actual</th>
+                  <th title="What a fair shuffle gives: the sum of 1 divided by players dealt in">expected</th>
+                  <th>Verdict</th>
+                  <th title="Chips won from all-in pots">All-in won</th>
+                  <th title="What the cards were worth when the money went in">expected</th>
+                  <th>Difference</th>
+                  <th>Verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {luck.players.map((r) => (
+                  <tr key={r.playerId}>
+                    <th scope="row">{r.name}</th>
+                    <td>{num(r.handsDealt)}</td>
+                    <td>{r.timesBest.toFixed(r.timesBest % 1 === 0 ? 0 : 1)}</td>
+                    <td>{r.expectedBest.toFixed(1)}</td>
+                    <td><span className={`vbadge ${r.bestVerdict}`}>{VERDICT_TEXT[r.bestVerdict].badge}</span><div className="muted small">{bestSentence(r, luck.minDealt)}</div></td>
+                    <td>{fmt(r.allInActual)}<div className="muted small">{num(r.allInHands)} all-ins</div></td>
+                    <td>{fmt(Math.round(r.allInExpected))}</td>
+                    <td className={r.allInActual - r.allInExpected < 0 ? "neg" : "pos"}>{signed(Math.round(r.allInActual - r.allInExpected))}</td>
+                    <td><span className={`vbadge ${r.allInVerdict}`}>{VERDICT_TEXT[r.allInVerdict].badge}</span><div className="muted small">{allInSentence(r, luck.minAllInHands)}</div></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small">
+            <b>All-in luck</b> only covers hands where the money went in with cards still to come. For each, we work out every player’s chance of winning at that
+            moment (all possible remaining cards), multiply by the pot they were playing for, and compare with what they actually won. “Expected” is
+            that average result, not a promise. A verdict needs at least {luck.minDealt} hands (and {luck.minAllInHands} all-ins for the all-in column).
+            {skipped > 0 && ` ${num(skipped)} ${skipped === 1 ? "hand was" : "hands were"} left out (5-Murder and other stud hands, or hands from before this report existed).`}
+          </p>
+          {luck.table && (
+            <p className="muted small">
+              Whole table, best-hand counts against even shares: chi-square {luck.table.chiSquare.toFixed(1)} on {luck.table.df} df, p = {formatP(luck.table.pValue)}
+              {" "}(<span className={`vbadge ${luck.table.verdict}`}>{VERDICT_TEXT[luck.table.verdict].badge}</span>).
+            </p>
+          )}
+          {o && (
+            <p className="muted small">
+              All {o.tested} luck checks together: {VERDICT_TEXT[o.verdict].sentence} Combined p = {o.pValue.toPrecision(3)} (adjusted for running {o.tested} checks at once).
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
