@@ -50,6 +50,7 @@ describe("socket server", () => {
   it("drives two clients through a complete hand", async () => {
     const tableId = "integration-1";
     const a = client(server.port, tableId, "Ana", "tok-a-123456", true);
+    await until(() => !!a.view); // Ana joins first so she is the host (racing joins made this flaky)
     const b = client(server.port, tableId, "Bo", "tok-b-123456", true);
     await until(() => !!a.view && !!b.view);
     expect(a.view!.you.isHost).toBe(true);

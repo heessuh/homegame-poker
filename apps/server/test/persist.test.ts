@@ -341,6 +341,7 @@ describe("persistence: server", () => {
     const server = await startServer(0, { dataDir: tmp() });
     open.push(server);
     const a = client(server.port, "history-1", "Ana", "tok-a-hist-12", true);
+    await until(() => !!a.view); // Ana joins first so she is the host (racing joins made this flaky)
     const b = client(server.port, "history-1", "Bo", "tok-b-hist-12", true);
     await until(() => !!a.view && !!b.view);
     a.emit("host:config", { awardMode: "auto" });

@@ -226,6 +226,8 @@ describe("budget guard on the server", () => {
     open.push({ close: () => server.close() });
 
     const a = client(server.port, "budget-1", "Ana", "tok-a-budget1");
+
+    await until(() => !!a.view); // Ana joins first so she is the host (racing joins made this flaky)
     const b = client(server.port, "budget-1", "Bo", "tok-b-budget1");
     await until(() => !!a.view && !!b.view);
     expect(a.view!.siteNotice).toBeNull();

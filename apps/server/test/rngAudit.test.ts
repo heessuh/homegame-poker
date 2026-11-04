@@ -168,6 +168,7 @@ describe("getRngAudit over sockets", () => {
     let server = await startServer(0, { dataDir: dir });
     open.push(server);
     const a = client(server.port, "audit-one", "Ana", "tok-ana-audit-1");
+    await until(() => !!a.view); // Ana joins first so she is the host (racing joins made this flaky)
     const b = client(server.port, "audit-one", "Bo", "tok-bo-audit-12");
     await until(() => !!a.view && !!b.view);
     a.emit("host:config", { awardMode: "auto" });
