@@ -14,9 +14,11 @@ import {
   type TableConfig,
   type HandRecord,
   type RngAuditReport,
+  type SessionReview,
 } from "@homegame/engine";
 import { IDLE_DELETE_MS, Store, type FsLike } from "./persist.js";
 import { RngAudit } from "./rngAudit.js";
+import { buildSessionReview } from "./luckWork.js";
 import { loadUsageConfig, UsageMeter, type UsageConfig } from "./usage.js";
 import { realScheduler, Table, UserError, type Scheduler, type TableSnapshot } from "./table.js";
 
@@ -320,6 +322,20 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
         (reply as (l: unknown[]) => void)(ctx().table.getDealerLog());
       } catch (e) {
         (reply as (l: unknown[]) => void)([]);
+      }
+    });
+    onAck("getSessionReview", (raw, ack) => {
+      if (typeof ack !== "function") return;
+      try {
+        const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+        const filter = o.filter;
+        const page = o.page;
+        if (filter !== "all" && filter !== "folded-best" && filter !== "won-without-best") throw new UserError("Invalid request.");
+        if (typeof page !== "number" || !Number.isInteger(page) || page < 0 || page > 100000) throw new UserError("Invalid request.");
+        const { table } = ctx();
+        const history = table.snapshot().history;
+        void buildSessionReview(history, filter, page).then((r) => (ack as (r: SessionReview) => void)(r)).catch((e) => console.error("session review failed", e));
+      } catch (e) {
         fail(e);
       }
     });

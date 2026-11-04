@@ -1,7 +1,7 @@
 // Poker hand state machine. Pure functions over a JSON-serializable HandState.
 import type { Card } from "./cards.js";
 import { VARIANTS, splitOf, type VariantId } from "./variants.js";
-import type { Declaration, HouseLimit, LegalActions, Phase, PlayerAction, PotView, StudStakes, WinnerView } from "./protocol.js";
+import type { Declaration, FoldStreet, HouseLimit, RunoutSnapshot, LegalActions, Phase, PlayerAction, PotView, StudStakes, WinnerView } from "./protocol.js";
 import { bestHigh, bestLow8, bestLowAny, type HighResult, type LowResult } from "./evaluate.js";
 import { houseLimitSizing, requiredIncrement, validateSpreadRules } from "./limits.js";
 import { applyStudAction, startStudHand, studLegal, studTimeoutAction } from "./stud.js";
@@ -97,6 +97,10 @@ export interface HandState {
   discards?: Card[];
   /** True once every live player has declared (declarations may then be shown). */
   declarationsRevealed?: boolean;
+  /** Board games: set once, when betting closed with cards still to come and nobody could act any more (an all-in runout). */
+  runout?: RunoutSnapshot;
+  /** Board games: the street on which each player folded. */
+  foldedOn?: Record<string, FoldStreet>;
 }
 
 // ---------- helpers ----------
@@ -287,6 +291,7 @@ function proceed(s: HandState, lastIdx: number): void {
     }
     // Street is over.
     s.toActSeat = null;
+    if (!s.runout && s.board.length < 5 && activeCount(s) <= 1 && live.length >= 2) s.runout = snapshotRunout(s);
     if (s.phase === "river") {
       s.phase = "showdown";
       resolveShowdown(s);
@@ -303,6 +308,23 @@ function proceed(s: HandState, lastIdx: number): void {
     dealNextStreet(s);
     from = btnIndex(s);
   }
+}
+
+/**
+ * The all-in moment, for the luck report: betting just closed, cards are still to come and no one can bet any more.
+ * Pots are what showdown will use (after the uncalled part of the biggest bet goes back).
+ */
+function snapshotRunout(s: HandState): RunoutSnapshot {
+  const copy = s.players.map((p) => ({ ...p }));
+  const sorted = [...copy].sort((a, b) => b.totalCommitted - a.totalCommitted);
+  const top = sorted[0];
+  const second = sorted[1];
+  if (top && second && top.totalCommitted > second.totalCommitted) top.totalCommitted = second.totalCommitted;
+  return {
+    boardLen: s.board.length,
+    live: s.players.filter((p) => !p.folded).map((p) => p.playerId),
+    pots: buildPots(copy).map((p) => ({ amount: p.amount, eligiblePlayerIds: [...p.eligiblePlayerIds] })),
+  };
 }
 
 // ---------- legal actions ----------
@@ -375,6 +397,7 @@ export function applyAction(state: HandState, playerId: string, action: PlayerAc
   switch (action.type) {
     case "fold": {
       p.folded = true;
+      if (s.phase === "preflop" || s.phase === "flop" || s.phase === "turn" || s.phase === "river") (s.foldedOn ??= {})[p.playerId] = s.phase;
       p.hasActed = true;
       p.lastAction = "Fold";
       s.log.push(`${name(p)} folds`);

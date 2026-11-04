@@ -5,6 +5,7 @@ import {
   DEFAULT_STUD,
   VARIANTS,
   applyAction,
+  orderFromButton,
   CLIENT_SEED_RE,
   FAIR_ALGORITHM,
   buildMaterial,
@@ -1330,6 +1331,10 @@ export class Table {
       shown: o.shown,
       names,
       endedAt: this.now(),
+      // Lets the luck report rebuild the deal exactly (board games only).
+      ...(VARIANTS[h.state.variant].kind === "stud" ? {} : {
+        luck: { v: 1 as const, dealOrder: orderFromButton(h.state).map((p) => p.playerId), foldStreet: { ...(h.state.foldedOn ?? {}) }, ...(h.state.runout ? { runout: h.state.runout } : {}) },
+      }),
     };
     this.history.push(this.lastHand);
     try { this.onHandRecorded?.(this.tableId, this.lastHand); } catch (e) { console.error("onHandRecorded failed", e); }

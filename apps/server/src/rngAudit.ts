@@ -1,11 +1,12 @@
 import * as nodeFs from "node:fs/promises";
 import { join } from "node:path";
 import {
-  addHandToCounts, buildReport, emptyCounts, isAuditCounts,
-  type AuditCounts, type HandRecord, type RngAuditReport,
+  addHandToCounts, buildLuckReport, buildReport, emptyCounts, isAuditCounts,
+  type AuditCounts, type HandRecord, type LuckReport, type RngAuditReport,
 } from "@homegame/engine";
 import type { FsLike } from "./persist.js";
 import type { Scheduler } from "./table.js";
+import { LuckQueue } from "./luckWork.js";
 
 const FILE_VERSION = 1;
 const DEBOUNCE_MS = 2000;
@@ -37,6 +38,8 @@ const keyOf = (n: number, endedAt: number): string => `${n}@${endedAt}`;
 export class RngAudit {
   private readonly o: RngAuditOptions;
   private readonly fs: FsLike;
+  /** Background worker for the per-player luck numbers. */
+  readonly luck = new LuckQueue();
   private counts: AuditCounts = emptyCounts();
   private since: string;
   private readonly seen = new Map<string, Set<string>>();
@@ -93,6 +96,8 @@ export class RngAudit {
     if (!addHandToCounts(this.counts, rec)) return false;
     if (!set) this.seen.set(tableId, (set = new Set()));
     set.add(key);
+    // The luck math runs in the background, a few milliseconds at a time (see LuckQueue).
+    this.luck.enqueue(rec);
     this.markDirty();
     return true;
   }
@@ -121,7 +126,13 @@ export class RngAudit {
         if (rec.endedAt < first) first = rec.endedAt;
       }
     }
-    return buildReport(c, "table", new Date(Number.isFinite(first) ? first : this.o.now()).toISOString());
+    return { ...buildReport(c, "table", new Date(Number.isFinite(first) ? first : this.o.now()).toISOString()), luck: this.luckReport(history) };
+  }
+
+  /** Whatever luck numbers are ready now (never computes); hands not done yet are queued and counted in `pending`. */
+  private luckReport(history: readonly HandRecord[]): LuckReport {
+    for (const rec of history) this.luck.enqueue(rec);
+    return buildLuckReport(history, {}, true);
   }
 
   private markDirty(): void {

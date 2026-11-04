@@ -9,6 +9,7 @@ import { MoneyInput, Who, avatarOf } from "./ui";
 import { fairnessExport, verifyFairness, type FairCheck } from "./fairness";
 import { RngAudit } from "./RngAudit";
 import { DealerLog, fetchDealerLog, ledgerText, saveFile } from "./DealerLog";
+import { SessionReview } from "./SessionReview";
 import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
 export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "dealer" | "host" | "fairness";
@@ -99,6 +100,7 @@ function LastHand({ view }: { view: TableView }) {
 function History({ view, send }: { view: TableView; send: Send }) {
   const [sel, setSel] = useState<number | null>(null);
   const [rec, setRec] = useState<HandRecord | null | undefined>(undefined); // undefined = loading
+  const [mode, setMode] = useState<"list" | "review">("list");
   const open = (n: number) => {
     setSel(n);
     setRec(undefined);
@@ -130,9 +132,17 @@ function History({ view, send }: { view: TableView; send: Send }) {
       </div>
     );
   }
-  if (view.handList.length === 0) return <p className="muted">No finished hands yet.</p>;
+  const toggle = (
+    <div className="btn-row hmode" role="group" aria-label="History view">
+      <button className={`btn small${mode === "list" ? " on" : ""}`} aria-pressed={mode === "list"} onClick={() => setMode("list")}>Hands</button>
+      <button className={`btn small${mode === "review" ? " on" : ""}`} aria-pressed={mode === "review"} onClick={() => setMode("review")}>Session review</button>
+    </div>
+  );
+  if (mode === "review") return <div>{toggle}<SessionReview send={send} handCount={view.handList.length} /></div>;
+  if (view.handList.length === 0) return <div>{toggle}<p className="muted">No finished hands yet.</p></div>;
   return (
-    <>
+    <div>
+    {toggle}
     <div className="btn-row wrap logbtns">
       <button className="btn small" disabled={busy} onClick={downloadAll}>{busy ? "Collecting…" : "Download all hands (fairness data)"}</button>
       <a className="btn small" href={VERIFIER_URL} target="_blank" rel="noreferrer">Check it yourself</a>
@@ -150,7 +160,7 @@ function History({ view, send }: { view: TableView; send: Send }) {
         </li>
       ))}
     </ul>
-    </>
+    </div>
   );
 }
 
