@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { verifyLedger } from "@homegame/engine";
+import { checkLedgerView, verifyLedger } from "@homegame/engine";
 import type { DealerEntry, TableView } from "@homegame/engine";
 import type { Send } from "./App";
 import { sha256Hex } from "./util";
@@ -142,4 +142,60 @@ export function DealerLog({ view, send }: { view: TableView; send: Send }) {
       )}
     </div>
   );
+}
+
+/**
+ * Background watchdog, mounted once for the whole room (so it runs for every player on every table update):
+ * checks the view's ledger tail and this browser's saved pin, falling back to the full ledger at most once a minute.
+ */
+export function useDealerWatch(view: TableView, send: Send): { alert: string | null; dismiss: () => void } {
+  const { count, headHash } = view.dealerLog;
+  const [alert, setAlert] = useState<string | null>(null);
+  const dismissed = useRef<Set<string>>(new Set());
+  const lastFull = useRef<{ at: number; count: number }>({ at: 0, count: 0 });
+  const run = useRef(0);
+  const dl = view.dealerLog;
+  const tableId = view.tableId;
+
+  useEffect(() => {
+    const id = ++run.current;
+    const raise = (msg: string) => {
+      if (id === run.current && !dismissed.current.has(msg)) setAlert(msg);
+    };
+    void (async () => {
+      try {
+        const pin = readPin(tableId);
+        const res = await checkLedgerView(dl, pin, tableId, sha256Hex);
+        if (id !== run.current) return;
+        if (res.problem) return raise(res.problem);
+        if (res.newPin) {
+          if (!pin || res.newPin.seq >= pin.seq) writePin(tableId, res.newPin);
+          return;
+        }
+        if (res.needFull) {
+          const now = Date.now();
+          const jumped = count - lastFull.current.count >= 100;
+          if (now - lastFull.current.at < 60_000 && !jumped) return;
+          lastFull.current = { at: now, count };
+          const entries = await fetchDealerLog(send);
+          if (id !== run.current && entries.length === 0) return;
+          const verdict = await verifyLedger(entries, tableId, sha256Hex);
+          if (!verdict.ok) return raise(`Chain broken at #${verdict.brokenAt}: ${verdict.reason}.`);
+          const warn = pinWarning(pin, entries);
+          if (warn) return raise(warn);
+          if (entries.length > 0) writePin(tableId, { seq: entries.length, hash: entries[entries.length - 1]!.hash });
+        }
+      } catch {
+        /* no WebCrypto (plain HTTP) or storage: nothing to check with */
+      }
+    })();
+  }, [count, headHash, tableId, send]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return {
+    alert,
+    dismiss: () => {
+      if (alert) dismissed.current.add(alert);
+      setAlert(null);
+    },
+  };
 }

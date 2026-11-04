@@ -81,3 +81,62 @@ export async function verifyLedger(entries: readonly DealerEntry[], tableId: str
   }
   return { ok: true, count: entries.length };
 }
+
+export interface LedgerPin {
+  seq: number;
+  hash: string;
+}
+
+export interface LedgerViewCheck {
+  /** Set when something is wrong: the chain is broken or history changed since this browser last looked. */
+  problem: string | null;
+  /** The pin is older than the tail we were given: fetch the full ledger and verify it (rate limit this). */
+  needFull: boolean;
+  /** Where to move the pin when there is no problem and no full check is needed; otherwise null. */
+  newPin: LedgerPin | null;
+}
+
+/**
+ * Cheap check run on every table update using only the view's {count, headHash, tail}:
+ * the tail must chain and hash correctly and end at headHash; a stored pin must still be in the history.
+ */
+export async function checkLedgerView(
+  dl: { count: number; headHash: string; tail: readonly DealerEntry[] },
+  pin: LedgerPin | null,
+  tableId: string,
+  sha256: Sha256Hex,
+): Promise<LedgerViewCheck> {
+  const bad = (problem: string): LedgerViewCheck => ({ problem, needFull: false, newPin: null });
+  const { count, headHash, tail } = dl;
+  if (count === 0) {
+    if (tail.length) return bad("The dealer log is inconsistent.");
+    return pin && pin.seq > 0 ? bad(`This browser saw ${pin.seq} dealer log entries earlier, but the log is now empty.`) : { problem: null, needFull: false, newPin: null };
+  }
+  if (tail.length === 0) return bad("The dealer log is missing its latest entries.");
+  const first = tail[0]!;
+  const lastE = tail[tail.length - 1]!;
+  if (lastE.seq !== count || lastE.hash !== headHash) return bad("The dealer log head does not match its entries.");
+  let prev = first.seq === 1 ? await sha256(ledgerGenesisInput(tableId)) : first.prevHash;
+  for (let i = 0; i < tail.length; i++) {
+    const e = tail[i]!;
+    if (e.seq !== first.seq + i) return bad(`Dealer log entry #${first.seq + i} is out of order.`);
+    if (e.prevHash !== prev) return bad(`Chain broken at #${e.seq}: it does not follow the previous entry.`);
+    let h: string;
+    try {
+      h = await sha256(ledgerHashInput(e));
+    } catch {
+      return bad(`Chain broken at #${e.seq}: entry is malformed.`);
+    }
+    if (h !== e.hash) return bad(`Chain broken at #${e.seq}: contents were changed.`);
+    prev = e.hash;
+  }
+  if (pin && pin.seq > 0) {
+    if (pin.seq > count) return bad(`This browser saw ${pin.seq} dealer log entries earlier, but the server now has only ${count}. Entries were removed.`);
+    if (pin.seq >= first.seq) {
+      if (tail[pin.seq - first.seq]!.hash !== pin.hash) return bad(`Dealer log entry #${pin.seq} is different from what this browser saw earlier. History was rewritten.`);
+    } else {
+      return { problem: null, needFull: true, newPin: null };
+    }
+  }
+  return { problem: null, needFull: false, newPin: { seq: count, hash: headHash } };
+}
