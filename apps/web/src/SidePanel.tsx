@@ -213,6 +213,13 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
           <span className="pname"><Who avatar={s.avatar} name={s.name} /> <span className="muted">{fmt(s.stack)}</span></span>
           <button className="btn tiny" title="Remove chips" onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: -delta })}>−</button>
           <button className="btn tiny" title="Add chips" onClick={() => send("host:adjustStack", { playerId: s.playerId, delta })}>+</button>
+          <button
+            className="btn tiny"
+            title={s.sittingOut ? "Deal this player back in" : "Mark this player as away"}
+            onClick={() => send("host:sitOut", { playerId: s.playerId, sittingOut: !s.sittingOut })}
+          >
+            {s.sittingOut ? "Sit in" : "Sit out"}
+          </button>
           {s.playerId !== view.you.playerId && (
             <button className="btn tiny danger" onClick={() => { if (confirm(`Kick ${s.name}?`)) send("host:kick", { playerId: s.playerId }); }}>Kick</button>
           )}

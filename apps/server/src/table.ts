@@ -535,6 +535,19 @@ export class Table {
     this.addLog("Table settings updated");
   }
 
+  hostSitOut(playerId: string, targetId: string, sittingOut: boolean): void {
+    this.requireHost(playerId);
+    const p = this.get(targetId);
+    if (p.seat === null) throw new UserError(`${p.name} is not seated.`);
+    if (typeof sittingOut !== "boolean") throw new UserError("Invalid request.");
+    if (!sittingOut && p.stack <= 0) throw new UserError(`${p.name} needs chips before sitting back in.`);
+    if (p.sittingOut !== sittingOut) this.addLog(`The dealer marked ${p.name} as ${sittingOut ? "sitting out" : "back in"}`);
+    if (!sittingOut) p.timeouts = 0;
+    p.sittingOut = sittingOut;
+    this.settleIfActor(p);
+    this.changed();
+  }
+
   hostKick(playerId: string, targetId: string): void {
     this.requireHost(playerId);
     const t = this.players.get(targetId);

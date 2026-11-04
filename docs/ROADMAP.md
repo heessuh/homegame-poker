@@ -6,7 +6,7 @@
 - [x] Deck commit/reveal (provably fair)
 - [x] Variant definitions: NLHE, PLO4, PLO5, PLO4-8, PLO5-8
 - [x] Fly.io scale-to-zero config, CI
-- [x] First deploy to Fly.io (https://homegame-poker.fly.dev)
+- [x] First deploy to Fly.io (https://mochapoker.fly.dev)
 
 ## Beta: playable game
 - [x] Hand evaluator: high hands (Hold’em any-5-of-7; Omaha exactly 2 hole + 3 board)

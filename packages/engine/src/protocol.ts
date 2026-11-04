@@ -217,6 +217,7 @@ export interface ClientToServerEvents {
   "host:pause": (p: { paused: boolean }) => void;
   "host:config": (p: Partial<TableConfig>) => void;
   "host:kick": (p: { playerId: string }) => void;
+  "host:sitOut": (p: { playerId: string; sittingOut: boolean }) => void; // dealer marks a player away / back
   "host:adjustStack": (p: { playerId: string; delta: number }) => void; // between hands, recorded in ledger
   /** Hand out a pending pot. Amounts are non-negative integers that must sum to pendingAward.amount. */
   "host:award": (p: { awards: { playerId: string; amount: number }[] }) => void;

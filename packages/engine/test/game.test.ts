@@ -768,3 +768,36 @@ describe("hi/lo splits (plo4-8)", () => {
     for (const p of s0.players) expect(p.holeCards).toHaveLength(5);
   });
 });
+
+// ---------- Hold'em Hi/Lo ----------
+
+describe("Hold'em Hi/Lo (8 or better)", () => {
+  it("splits high and low using any five of seven cards", () => {
+    let s = newHand({
+      variant: "nlhe-8",
+      stacks: { 0: 100, 1: 100 },
+      button: 0,
+      holes: { 0: ["Ah", "2c"], 1: ["Kd", "Ks"] },
+      board: ["3d", "4s", "9h", "Kc", "8d"],
+    });
+    s = seq(s, [[0, CALL], [1, CHECK]]);
+    const out = done(checkdown(s));
+    const high = out.winners.find((w) => w.half === "high")!;
+    const low = out.winners.find((w) => w.half === "low")!;
+    expect(high).toMatchObject({ playerId: "p1", amount: 2 });
+    expect(low).toMatchObject({ playerId: "p0", amount: 2, handName: "8-4-3-2-A" });
+  });
+
+  it("lets the high hand scoop when no low qualifies", () => {
+    let s = newHand({
+      variant: "nlhe-8",
+      stacks: { 0: 100, 1: 100 },
+      button: 0,
+      holes: { 0: ["Ah", "2c"], 1: ["Kd", "Ks"] },
+      board: ["Kh", "Qd", "Jc", "9s", "9h"],
+    });
+    s = seq(s, [[0, CALL], [1, CHECK]]);
+    const out = done(checkdown(s));
+    expect(out.winners).toEqual([expect.objectContaining({ playerId: "p1", amount: 4, half: "whole" })]);
+  });
+});

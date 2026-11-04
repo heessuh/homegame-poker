@@ -21,7 +21,7 @@ Use the game dropdown in the top bar. If no hand is running, the game changes ri
 
 In the **Host** tab, under **Settings**, you can change:
 
-- **Variant**: No-Limit Hold’em, Pot-Limit Omaha (4 or 5 cards), or the Hi/Lo 8-or-better versions.
+- **Variant**: No-Limit Hold’em, Pot-Limit Omaha (4 or 5 cards), or the Hi/Lo 8-or-better versions of Hold’em and both Omahas.
 - **Small blind** and **Big blind**.
 - **Max seats**: 2 to 10 for four-card games, 2 to 8 for five-card games.
 - **Action timer**: seconds per action, or 0 to turn it off. Allowed values are 0 or 10 to 120.
@@ -35,6 +35,7 @@ Click **Apply settings** to save. If a hand is in progress, changes wait and app
 Under **Players** you can see everyone seated with their stack.
 
 - Enter an amount in **Stack adjust amount**, then use **+** or **−** next to a player to add or remove chips. Adjustments made during a hand are applied after it ends.
+- **Sit out / Sit in** marks a player as away if they forgot to do it themselves, so they aren’t dealt in (in a tournament they’re still dealt and fold automatically). Click **Sit in** to deal them back in.
 - **Kick** removes a player from their seat and stops them from sitting down again. If they’re in a hand, they leave after it ends. You cannot kick yourself.
 - **Move chips** moves any amount from one player’s stack to another’s at any time. Between hands it happens right away; during a hand, it happens at the end of the current hand.
 - **Timer** sets each player’s action timer: **Table default**, **No limit**, or 15 to 180 seconds. While someone is acting, you can click **+30s** to give them more time, or **Time out now** to act for them: check if possible, otherwise fold.

@@ -1,6 +1,6 @@
 # Home Game Poker
 
-**Live beta:** https://homegame-poker.fly.dev
+**Live beta:** https://mochapoker.fly.dev
 
 A private, browser-based poker room for a group of friends. No downloads, no accounts: the host opens a table and shares the link.
 

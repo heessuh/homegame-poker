@@ -1,6 +1,6 @@
 # POC settings: one tiny machine that stops when nobody is connected.
 # An open WebSocket counts as a connection, so it stays up during a game.
-app = "homegame-poker"
+app = "mochapoker"
 primary_region = "iad"
 
 [build]

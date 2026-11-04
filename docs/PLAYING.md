@@ -61,6 +61,7 @@ At some tables the dealer decides who gets the pot. When that happens, you’ll 
 - **No-Limit Texas Hold’em**, up to 10 players.
 - **Pot-Limit Omaha** with 4 hole cards, up to 10 players.
 - **5-Card Pot-Limit Omaha**, up to 8 players.
+- **No-Limit Hold’em Hi/Lo (8 or better)**, up to 10 players: the pot splits between the best high hand and the best low hand (five different cards 8 or lower, any five of your seven). If nobody has a low, the high hand takes it all.
 - **Pot-Limit Omaha Hi/Lo (8 or better)** with 4 hole cards, up to 10 players.
 - **5-Card Pot-Limit Omaha Hi/Lo (8 or better)**, up to 8 players.
 

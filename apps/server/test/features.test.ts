@@ -527,3 +527,16 @@ describe("mode switches keep the cash ledger honest", () => {
     expect(view(r).ledger.find((l) => l.playerId === r.ids[0])!.buyIns).toBe(350);
   });
 });
+
+describe("dealer sit-out", () => {
+  it("lets only the host mark a player away and back", () => {
+    const r = rig(2);
+    r.table.sit(r.ids[0]!, 0, 100);
+    r.table.sit(r.ids[1]!, 1, 100);
+    expect(() => r.table.hostSitOut(r.ids[1]!, r.ids[0]!, true)).toThrow(UserError);
+    r.table.hostSitOut(r.ids[0]!, r.ids[1]!, true);
+    expect(seatOf(r, 1).sittingOut).toBe(true);
+    r.table.hostSitOut(r.ids[0]!, r.ids[1]!, false);
+    expect(seatOf(r, 1).sittingOut).toBe(false);
+  });
+});

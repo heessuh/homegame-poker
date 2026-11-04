@@ -177,6 +177,13 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
       table.sitOut(playerId, p.sittingOut);
     }));
 
+    on("host:sitOut", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      if (typeof p.playerId !== "string" || typeof p.sittingOut !== "boolean") throw new UserError("Invalid request.");
+      table.hostSitOut(playerId, p.playerId, p.sittingOut);
+    }));
+
     on("rebuy", handle((raw) => {
       const p = obj(raw);
       const { table, playerId } = ctx();
