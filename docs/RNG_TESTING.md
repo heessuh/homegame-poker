@@ -64,6 +64,9 @@ Fill in a row after each run (copy the numbers from the job summaries).
 | Date | Commit | dieharder (PASSED / WEAK / FAILED) | PractRand size reached (stream / decks) | NIST pass proportions (stream / decks) | Permutation (N) |
 |---|---|---|---|---|---|
 | 2026-11-04 | f64e334 + working-tree changes | not run yet | not run yet | not run yet | All 9 tests PASS, N = 200,000 (local run; the workflow uses 1,000,000) |
+| 2026-11-04 | 83025d8 ([run 41893755190](https://github.com/heessuh/homegame-poker/actions/runs/41893755190)) | still running | decks: passed at 512 MB; stream: still running | stream: 1 of 188 rows below the acceptance proportion; decks: 3 of 188 (10 allowed); no row below 90%; no uniformity p < 1e-4 | All tests PASS, N = 1,000,000 |
 | _next run_ | | | | | |
+
+The first workflow run (41866825867) never tested the data: SourceForge refused the PractRand download (HTTP 403), and NIST STS 2.1.2’s `assess` exits with status 1 even on success, which stopped the job before the report was saved. Both are fixed in the workflow; the shuffle itself was not changed.
 
 Local permutation run, 2026-11-04, N = 200,000 decks (all PASS, threshold p ≥ 0.001): position × card 52×52 (df 2601), each card’s and each position’s distribution (worst of 52), adjacent equal-rank pairs vs 3/51, adjacent equal-suit pairs vs 12/51, suit-run lengths, pooled and worst-single Fisher–Yates swap index distributions (df 1326), and the 7-card hand-category distribution vs the exact counts (df 8). The raw numbers are in `test-reports/rng-permutation.json`.
