@@ -42,7 +42,7 @@ jobs:
       - run: npm ci
       - name: Build the web app and record its manifest
         run: |
-          npm run build -w @homegame/web
+          npm run build:web
           node scripts/web-manifest.mjs --out web-manifest.json
           cat web-manifest.json
       - uses: actions/upload-artifact@v4

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @homegame/engine && npm run build -w @homegame/web && npm run build -w @homegame/server",
+    "build:web": "npm run build -w @homegame/engine && npm run build -w @homegame/web",
     "dev:server": "npm run dev -w @homegame/server",
     "dev:web": "npm run dev -w @homegame/web",
     "test": "npm test -w @homegame/engine",

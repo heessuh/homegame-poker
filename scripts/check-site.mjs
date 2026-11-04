@@ -35,7 +35,7 @@ if (version.commit && gitInfo && gitInfo.head !== version.commit) {
 if (!reuse) {
   console.log("Building apps/web from scratch (run `npm ci` first if you have not) ...");
   rmSync(dist, { recursive: true, force: true });
-  const b = spawnSync("npm run build -w @homegame/web", { cwd: root, shell: true, stdio: "inherit" });
+  const b = spawnSync("npm run build:web", { cwd: root, shell: true, stdio: "inherit" });
   if (b.status !== 0) fail("The local build failed. Run `npm ci` and try again.");
 } else if (!existsSync(dist)) fail("--no-build was given but apps/web/dist does not exist.");
 
