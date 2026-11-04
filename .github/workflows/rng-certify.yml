@@ -1,0 +1,300 @@
+name: RNG certify
+
+# Runs independent randomness test suites (dieharder, PractRand, NIST SP 800-22) and our own permutation
+# checks against the exact production mochapoker-v1 stream. See docs/RNG_TESTING.md.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 1 * *" # 1st of every month, 06:00 UTC
+  push:
+    branches: [main]
+    paths:
+      - "packages/engine/src/fair*.ts"
+      - "packages/engine/src/shuffle.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  dieharder:
+    name: dieharder (-a, stdin raw)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build
+      - name: Install dieharder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dieharder
+          dieharder -V || true
+      - name: Run dieharder -a on the production stream
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p rng-logs
+          # -g 200 = stdin_input_raw: raw bytes from stdin. The exporter verifies the stream against the
+          # engine's deriveDeck at startup and then runs until dieharder closes the pipe.
+          node scripts/rng-export.mjs 2> rng-logs/export-stderr.txt | dieharder -a -g 200 | tee rng-logs/dieharder.txt
+      - name: Summarize and gate
+        if: always()
+        shell: bash
+        run: |
+          f=rng-logs/dieharder.txt
+          passed=$(grep -c ' PASSED *$' "$f" || true)
+          weak=$(grep -c ' WEAK *$' "$f" || true)
+          failed=$(grep -c ' FAILED *$' "$f" || true)
+          # dieharder's own manual flags diehard_sums as unreliable; it is reported but does not gate.
+          gating=$(grep ' FAILED *$' "$f" | grep -vc '^ *diehard_sums' || true)
+          {
+            echo "## dieharder -a (stdin raw)"
+            echo ""
+            echo "| PASSED | WEAK | FAILED | FAILED (gating) |"
+            echo "|---:|---:|---:|---:|"
+            echo "| $passed | $weak | $failed | $gating |"
+            echo ""
+            echo "WEAK results are expected by chance now and then in a run of about 114 tests; they do not fail the job."
+            echo ""
+            if [ "$weak" != "0" ] || [ "$failed" != "0" ]; then
+              echo '```'
+              grep -E ' (WEAK|FAILED) *$' "$f" || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ $((passed + weak + failed)) -eq 0 ]; then echo "dieharder produced no results"; exit 1; fi
+          if [ "$gating" != "0" ]; then echo "dieharder reported FAILED tests"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dieharder-logs
+          path: rng-logs/
+          if-no-files-found: ignore
+
+  practrand:
+    name: PractRand (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # stream: the raw HMAC stream across many seeds. decks: Lehmer-rank bits of derived decks (slower to generate).
+          - { mode: stream, tlmax: 16GB }
+          - { mode: decks, tlmax: 128MB }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build
+      - name: Download and build PractRand 0.95 (official source, SourceForge)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/practrand-src" && cd "$RUNNER_TEMP/practrand-src"
+          curl -fsSL --retry 5 --retry-delay 5 -A "Mozilla/5.0" -o pr.zip \
+            "https://downloads.sourceforge.net/project/pracrand/PractRand-pre0.95.zip"
+          sha256sum pr.zip
+          unzip -q pr.zip
+          root=$(dirname "$(dirname "$(find . -path '*include/PractRand/rng_basics.h' | head -1)")")
+          root=$(dirname "$root")
+          echo "PractRand root: $root"
+          cd "$root"
+          # Build recipe from PractRand's own documentation (library, then the RNG_test tool).
+          g++ -c src/*.cpp src/RNGs/*.cpp src/RNGs/other/*.cpp -O3 -Iinclude -pthread
+          ar rcs libPractRand.a *.o
+          rm -f *.o
+          g++ -o RNG_test tools/RNG_test.cpp libPractRand.a -O3 -Iinclude -pthread
+          cp RNG_test "$GITHUB_WORKSPACE/RNG_test"
+      - name: Run PractRand on the production bytes
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p rng-logs
+          # stdin32 = raw 32-bit-word stream on stdin. PractRand stops at -tlmax and closes the pipe.
+          node scripts/rng-export.mjs --mode=${{ matrix.mode }} 2> rng-logs/export-stderr.txt \
+            | ./RNG_test stdin32 -tlmax ${{ matrix.tlmax }} | tee rng-logs/practrand-${{ matrix.mode }}.txt
+      - name: Summarize and gate
+        if: always()
+        shell: bash
+        run: |
+          f=rng-logs/practrand-${{ matrix.mode }}.txt
+          reached=$(grep -E '^length=' "$f" | tail -1 || true)
+          last=$(grep -E '^(length=|  no anomalies)' "$f" | tail -2 | tr '\n' ' ' || true)
+          anomalies=$(grep -E '^\s+\S+\s+.*(unusual|suspicious|FAIL|mildly|very suspicious)' "$f" | sort -u || true)
+          fails=$(printf '%s\n' "$anomalies" | grep -c 'FAIL' || true)
+          {
+            echo "## PractRand 0.95 (${{ matrix.mode }}, -tlmax ${{ matrix.tlmax }})"
+            echo ""
+            echo "Last length reached: \`${reached:-none}\`"
+            echo ""
+            if [ -z "$anomalies" ]; then
+              echo "Result: no anomalies up to the size reached. (\`$last\`)"
+            else
+              echo "Anomalies reported (sorted, de-duplicated; transient ones may disappear at larger sizes):"
+              echo '```'
+              printf '%s\n' "$anomalies"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$reached" ]; then echo "PractRand produced no output"; exit 1; fi
+          if [ "$fails" != "0" ]; then echo "PractRand reported FAIL"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: practrand-logs-${{ matrix.mode }}
+          path: rng-logs/
+          if-no-files-found: ignore
+
+  nist:
+    name: NIST SP 800-22 (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [stream, decks]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build
+      - name: Export 100 sequences of 1,000,000 bits (12,500,000 bytes)
+        run: |
+          mkdir -p rng-logs
+          node scripts/rng-export.mjs --mode=${{ matrix.mode }} --bytes 12500000 --out rng-logs/nist-input.bin 2> rng-logs/export-stderr.txt
+          ls -l rng-logs/nist-input.bin
+      - name: Download and build NIST STS 2.1.2 (official C reference implementation)
+        id: sts
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sts-src" && cd "$RUNNER_TEMP/sts-src"
+          curl -fsSL --retry 5 --retry-delay 5 -A "Mozilla/5.0" -o sts.zip \
+            "https://csrc.nist.gov/CSRC/media/Projects/Random-Bit-Generation/documents/sts-2_1_2.zip"
+          sha256sum sts.zip
+          unzip -q sts.zip
+          root=$(dirname "$(find . -name makefile -o -name Makefile | head -1)")
+          cd "$root"
+          make
+          for d in Frequency BlockFrequency CumulativeSums Runs LongestRun Rank FFT NonOverlappingTemplate \
+                   OverlappingTemplate Universal ApproximateEntropy RandomExcursions RandomExcursionsVariant \
+                   Serial LinearComplexity; do mkdir -p "experiments/AlgorithmTesting/$d"; done
+          echo "STS_DIR=$PWD" >> "$GITHUB_ENV"
+      - name: Run STS assess (C reference)
+        if: steps.sts.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$STS_DIR"
+          # Prompts: generator 0 = input file; file; test 1 = all tests; 0 = default parameters;
+          # 100 bitstreams; input format 1 = binary.
+          printf '0\n%s\n1\n0\n100\n1\n' "$GITHUB_WORKSPACE/rng-logs/nist-input.bin" | ./assess 1000000 | tee "$GITHUB_WORKSPACE/rng-logs/nist-assess-stdout.txt"
+          cp experiments/AlgorithmTesting/finalAnalysisReport.txt "$GITHUB_WORKSPACE/rng-logs/finalAnalysisReport.txt"
+      - name: Fallback - nistrng (Python implementation of SP 800-22)
+        if: steps.sts.outcome != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "NIST STS download/build failed; falling back to pip nistrng" >> "$GITHUB_STEP_SUMMARY"
+          python3 -m pip install nistrng numpy
+          python3 - <<'PY'
+          import numpy as np
+          from nistrng import SP800_22R1A_BATTERY, check_eligibility_all_battery, run_all_battery
+          data = np.fromfile("rng-logs/nist-input.bin", dtype=np.uint8)
+          bits_all = np.unpackbits(data).astype(np.int8)
+          M, SEQ = 1_000_000, 100
+          tally = {}
+          for s in range(SEQ):
+              bits = bits_all[s * M:(s + 1) * M]
+              eligible = check_eligibility_all_battery(bits, SP800_22R1A_BATTERY)
+              for result, _ in run_all_battery(bits, eligible, False):
+                  t = tally.setdefault(result.name, [0, 0])
+                  t[1] += 1
+                  t[0] += 1 if result.passed else 0
+          with open("rng-logs/finalAnalysisReport.txt", "w") as out:
+              out.write("# nistrng fallback: name  passed/total\n")
+              for k, (p, n) in sorted(tally.items()):
+                  out.write(f"  0 0 0 0 0 0 0 0 0 0  1.000000  {p}/{n}  {k}\n")
+          PY
+      - name: Summarize and gate
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import math, os, re, sys
+          path = "rng-logs/finalAnalysisReport.txt"
+          mode = "${{ matrix.mode }}"
+          summ = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          if not os.path.exists(path):
+              summ.write(f"## NIST SP 800-22 ({mode})\n\nNo report produced.\n"); sys.exit(1)
+          row = re.compile(r"^\s*(?:\d+\s+){10}([0-9.]+)\s*\*?\s+(\d+)/(\d+)\s*\*?\s+(\S+)")
+          rows = [m.groups() for m in map(row.match, open(path)) if m]
+          if not rows:
+              summ.write(f"## NIST SP 800-22 ({mode})\n\nReport had no result rows.\n"); sys.exit(1)
+          def accept(m):  # STS acceptance: 0.99 - 3*sqrt(0.99*0.01/m)
+              return 0.99 - 3 * math.sqrt(0.99 * 0.01 / m)
+          below, gross, unif = [], [], []
+          for p, k, m, name in rows:
+              p, k, m = float(p), int(k), int(m)
+              if k / m < accept(m): below.append((name, k, m, p))
+              if k / m < 0.90: gross.append((name, k, m, p))
+              if p < 1e-5: unif.append((name, k, m, p))
+          allowed = max(1, math.ceil(0.05 * len(rows)))
+          summ.write(f"## NIST SP 800-22 ({mode}): 100 sequences x 1,000,000 bits\n\n")
+          summ.write(f"| result rows | below acceptance proportion | proportion < 90% | uniformity p < 1e-5 |\n|---:|---:|---:|---:|\n")
+          summ.write(f"| {len(rows)} | {len(below)} | {len(gross)} | {len(unif)} |\n\n")
+          summ.write("Acceptance proportion for 100 sequences is about 0.9602. By chance a small number of rows land just below it, "
+                     "so the job fails only if any row is below 90%, any uniformity p-value is below 1e-5, "
+                     f"or more than {allowed} rows (5%) are below the acceptance proportion.\n\n")
+          if below:
+              summ.write("```\n" + "\n".join(f"{n}: {k}/{m} (uniformity p={p})" for n, k, m, p in below) + "\n```\n")
+          bad = bool(gross) or bool(unif) or len(below) > allowed
+          if bad: print("NIST gate failed"); sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nist-logs-${{ matrix.mode }}
+          path: rng-logs/
+          if-no-files-found: ignore
+
+  permutation:
+    name: Permutation tests (N = 1,000,000)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build
+      - name: Run permutation tests
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p rng-logs
+          node scripts/rng-permutation-tests.mjs --n 1000000 | tee rng-logs/permutation.txt
+      - name: Summarize
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Permutation tests (N = 1,000,000 decks)"
+            echo ""
+            echo '```'
+            cat rng-logs/permutation.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cp test-reports/rng-permutation.json rng-logs/ || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: permutation-logs
+          path: rng-logs/
+          if-no-files-found: ignore

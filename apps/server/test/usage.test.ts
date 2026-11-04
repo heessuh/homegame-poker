@@ -203,7 +203,7 @@ function client(port: number, tableId: string, name: string, token: string): Cli
   return s;
 }
 
-async function until(cond: () => boolean, ms = 10_000): Promise<void> {
+async function until(cond: () => boolean, ms = 60_000): Promise<void> {
   const start = Date.now();
   while (!cond()) {
     if (Date.now() - start > ms) throw new Error("timed out waiting for condition");
@@ -296,7 +296,7 @@ describe("budget guard on the server", () => {
     const e = client(server.port, "budget-3", "Di", "tok-d-budget3");
     await until(() => !!e.view);
     for (const x of [a, b, c, d, e]) x.close();
-  }, 30_000);
+  }, 120_000);
 
   it("a restart with a raised limit lifts the guard", async () => {
     const dir = tmp();

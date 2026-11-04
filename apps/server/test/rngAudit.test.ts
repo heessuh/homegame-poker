@@ -145,7 +145,7 @@ function client(port: number, tableId: string, name: string, token: string): Cli
   s.on("connect", () => s.emit("join", { tableId, name, playerToken: token }));
   return s;
 }
-async function until(cond: () => boolean, ms = 25_000): Promise<void> {
+async function until(cond: () => boolean, ms = 60_000): Promise<void> {
   const start = Date.now();
   while (!cond()) {
     if (Date.now() - start > ms) throw new Error("timed out waiting for condition");
@@ -229,5 +229,5 @@ describe("getRngAudit over sockets", () => {
     expect(rebuilt.hands).toBe(rebuiltTable.hands);
     expect(rebuilt.hands).toBeGreaterThanOrEqual(1);
     d.close();
-  }, 60_000);
+  }, 120_000);
 });

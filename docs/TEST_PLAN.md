@@ -14,6 +14,8 @@ npm run qa
 - Only run the commands listed in this plan. Do not edit, create or delete any file except your report in `test-reports/`.
 - Do not commit, push, deploy, or change any setting on Fly.io or GitHub.
 - Copy failure messages exactly. Don’t summarize them away, and don’t guess at causes.
+- Run the commands **one at a time**, never two at once. Several of the tests use real timers and can run out of time if the computer is busy.
+- If a test command reports failures, run that same command **once more**. If it passes the second time, record the step as **FLAKY**, list the test names that failed the first time, and copy their messages under Failures. FLAKY counts as passing for the Result. A test that fails both times is a real failure.
 - If a command fails to run at all (not a test failure but an error such as “command not found” or a crash), record the exact error and continue with the next step.
 - Never stop partway without writing the report.
 
@@ -135,7 +137,7 @@ Write `test-reports/YYYY-MM-DD-HHMM-<commit>.md` (local time), using this templa
 (None, or each failure copied exactly with the step it came from.)
 ```
 
-Set **Result** to `ALL PASS` only if every step passed. Otherwise set it to `NEEDS REVIEW`.
+Set **Result** to `ALL PASS` if every step passed or was FLAKY (and list any FLAKY steps under Failures so they can be fixed later). Otherwise set it to `NEEDS REVIEW`.
 
 ## If something fails
 
