@@ -8,12 +8,13 @@ import type { Card, HandRecord } from "@homegame/engine";
 import { MoneyInput, Who, avatarOf } from "./ui";
 import { verifyFairness, type FairCheck } from "./fairness";
 import { RngAudit } from "./RngAudit";
+import { DealerLog, fetchDealerLog, ledgerText, saveFile } from "./DealerLog";
 import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
-export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "host" | "fairness";
+export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "dealer" | "host" | "fairness";
 
 export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: Send; tab: Tab; setTab: (t: Tab) => void }) {
-  const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["history", "History"], ["last", "Last hand"], ["fairness", "Fairness"]];
+  const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["history", "History"], ["last", "Last hand"], ["fairness", "Fairness"], ["dealer", "Dealer log"]];
   if (view.tournament) tabs.splice(1, 0, ["standings", "Standings"]);
   if (view.you.isHost) tabs.push(["host", "Host"]);
   return (
@@ -30,6 +31,7 @@ export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: 
         {tab === "standings" && <Standings view={view} />}
         {tab === "last" && <LastHand view={view} />}
         {tab === "fairness" && <RngAudit send={send} handCount={view.handList.length} />}
+        {tab === "dealer" && <DealerLog view={view} send={send} />}
         {tab === "host" && view.you.isHost && <HostPanel view={view} send={send} />}
       </div>
     </div>
@@ -45,16 +47,11 @@ function Log({ lines, send, tableId }: { lines: string[]; send: Send; tableId: s
     setBusy(true);
     send("getLog", (l) => { setFull(l); setBusy(false); });
   };
-  const download = () => {
-    const text = (full ?? lines).join("\n") + "\n";
-    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `mochapoker-${tableId}-${new Date().toISOString().slice(0, 10)}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const download = async () => {
+    const dealer = await fetchDealerLog(send); // the session download carries the dealer ledger too
+    const text = (full ?? lines).join("\n") + "\n\n=== Dealer log (" + dealer.length + " entries) ===\n" + ledgerText(dealer)
+      + "\n\n=== Dealer log, verifiable JSON ===\n" + JSON.stringify({ tableId, entries: dealer }) + "\n";
+    saveFile(`mochapoker-${tableId}-${new Date().toISOString().slice(0, 10)}.txt`, text, "text/plain;charset=utf-8");
   };
   const shown = full ?? lines;
   return (
@@ -63,7 +60,7 @@ function Log({ lines, send, tableId }: { lines: string[]; send: Send; tableId: s
         {!full
           ? <button className="btn small" disabled={busy} onClick={load}>{busy ? "Loading…" : "Full session log"}</button>
           : <button className="btn small" onClick={() => setFull(null)}>Back to recent</button>}
-        <button className="btn small" onClick={download}>Download log</button>
+        <button className="btn small" onClick={() => void download()}>Download log</button>
       </div>
       {full && <p className="muted small">Whole session · {full.length} lines</p>}
       {shown.length === 0 ? <p className="muted">Nothing yet.</p> : (

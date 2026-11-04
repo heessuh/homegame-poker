@@ -4,3 +4,4 @@ export * from "../../../packages/engine/dist/variants.js";
 export * from "../../../packages/engine/dist/protocol.js";
 export * from "../../../packages/engine/dist/fair.js";
 export { deriveDeck as deriveDeckWeb, derivedShuffle as derivedShuffleWeb, seedHash as seedHashWeb } from "../../../packages/engine/dist/fairshuffle-web.js";
+export * from "../../../packages/engine/dist/ledger.js";

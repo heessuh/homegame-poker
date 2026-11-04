@@ -162,6 +162,10 @@ function MockRoom({ showToast, avatar, onAvatar }: { showToast: (m: string) => v
       (args[1] as (r: unknown) => void)(base ? { ...base, handNumber: num } : null);
       return;
     }
+    if (ev === "getDealerLog") {
+      (args[0] as (l: unknown[]) => void)([]);
+      return;
+    }
     if (ev === "getLog") {
       const f = fixturesRef.current?.[idRef.current];
       const lines = f ? [...f.log, ...f.log, ...f.log].map((l, i) => `[${String(i + 1).padStart(3, "0")}] ${l}`) : [];

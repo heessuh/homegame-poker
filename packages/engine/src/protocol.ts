@@ -3,6 +3,7 @@
 // All chip amounts are integers.
 import type { Card } from "./cards.js";
 import type { VariantId } from "./variants.js";
+import type { DealerEntry } from "./ledger.js";
 
 export interface TableConfig {
   variant: VariantId;
@@ -299,6 +300,8 @@ export interface TableView {
   lastHand: HandRecord | null;
   ledger: LedgerEntry[];
   log: string[]; // most recent last, capped
+  /** Tamper-evident record of host (dealer) actions: newest entries only; fetch the rest with getDealerLog. */
+  dealerLog: { count: number; headHash: string; tail: DealerEntry[] };
   /** Set while awardMode is "host" and a finished hand's pot is waiting to be awarded. Next hand waits for it. */
   pendingAward: PendingAward | null;
   /** Every finished hand this session, newest first (light entries). */
@@ -325,6 +328,8 @@ export interface ClientToServerEvents {
   getHand: (p: { handNumber: number }, ack: (rec: HandRecord | null) => void) => void;
   /** The whole session log (view.log only carries the latest lines). */
   getLog: (ack: (lines: string[]) => void) => void;
+  /** The complete dealer ledger, oldest first. */
+  getDealerLog: (ack: (entries: DealerEntry[]) => void) => void;
   action: (p: PlayerAction) => void;
   "host:start": () => void;
   "host:pause": (p: { paused: boolean }) => void;

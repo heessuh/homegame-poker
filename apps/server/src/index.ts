@@ -313,6 +313,16 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
         fail(e);
       }
     });
+    onAck("getDealerLog", (first, second) => {
+      const reply = (typeof first === "function" ? first : second) as unknown;
+      if (typeof reply !== "function") return;
+      try {
+        (reply as (l: unknown[]) => void)(ctx().table.getDealerLog());
+      } catch (e) {
+        (reply as (l: unknown[]) => void)([]);
+        fail(e);
+      }
+    });
     onAck("getLog", (first, second) => {
       const reply = (typeof first === "function" ? first : second) as unknown;
       if (typeof reply !== "function") return;
