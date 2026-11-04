@@ -6,12 +6,14 @@ import type { Send } from "./App";
 import { fmt, fmtWith, isStud, sha256Hex, shortGame } from "./util";
 import type { Card, HandRecord } from "@homegame/engine";
 import { MoneyInput, Who, avatarOf } from "./ui";
+import { verifyFairness, type FairCheck } from "./fairness";
+import { RngAudit } from "./RngAudit";
 import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
-export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "host";
+export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "host" | "fairness";
 
 export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: Send; tab: Tab; setTab: (t: Tab) => void }) {
-  const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["history", "History"], ["last", "Last hand"]];
+  const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["history", "History"], ["last", "Last hand"], ["fairness", "Fairness"]];
   if (view.tournament) tabs.splice(1, 0, ["standings", "Standings"]);
   if (view.you.isHost) tabs.push(["host", "Host"]);
   return (
@@ -27,6 +29,7 @@ export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: 
         {tab === "ledger" && <Ledger view={view} />}
         {tab === "standings" && <Standings view={view} />}
         {tab === "last" && <LastHand view={view} />}
+        {tab === "fairness" && <RngAudit send={send} handCount={view.handList.length} />}
         {tab === "host" && view.you.isHost && <HostPanel view={view} send={send} />}
       </div>
     </div>
@@ -134,7 +137,9 @@ function History({ view, send }: { view: TableView; send: Send }) {
 
 function HandDetail({ h, view }: { h: HandRecord; view: TableView }) {
   const [result, setResult] = useState<null | { ok: boolean; computed?: string; error?: string }>(null);
-  useEffect(() => setResult(null), [h.handNumber]);
+  const [fair, setFair] = useState<FairCheck[] | null>(null);
+  useEffect(() => { setResult(null); setFair(null); }, [h.handNumber]);
+  const verifyFair = async () => setFair(await verifyFairness(h, view.tableId, view.you.playerId));
   const verify = async () => {
     try {
       const computed = await sha256Hex(`${h.reveal.salt}:${h.reveal.deck.join(",")}`);
@@ -182,6 +187,25 @@ function HandDetail({ h, view }: { h: HandRecord; view: TableView }) {
           {result.error ? `Could not verify: ${result.error}` : result.ok ? "✓ Hash matches the revealed deck" : "✗ Hash does NOT match"}
           {result.computed && !result.ok && <code>{result.computed}</code>}
         </div>
+      )}
+      {h.fair && (
+        <>
+          <div className="kv"><span>Server seed (revealed)</span><code>{h.fair.serverSeed}</code></div>
+          <div className="kv"><span>Seed commitment</span><code>{h.fair.serverSeedHash}</code></div>
+          <div className="kv"><span>Player seeds ({Object.keys(h.fair.clientSeeds).length})</span></div>
+          {Object.entries(h.fair.clientSeeds).map(([id, sd]) => <div key={id} className="kv"><span>{name(id)}</span><code>{sd}</code></div>)}
+        </>
+      )}
+      <button className="btn small" onClick={verifyFair}>Verify fairness</button>
+      {fair && (
+        <ul className="fairchecks">
+          {fair.map((c, i) => (
+            <li key={i} className={c.ok === null ? "" : c.ok ? "ok" : "bad"}>
+              <b>{c.ok === null ? "–" : c.ok ? "✓" : "✗"} {c.label}</b>
+              <span className="muted small">{c.detail}</span>
+            </li>
+          ))}
+        </ul>
       )}
       <div className="kv"><span>Revealed deck order ({h.reveal.deck.length})</span></div>
       <CardRow cards={h.reveal.deck} size="sm" className="deck" />

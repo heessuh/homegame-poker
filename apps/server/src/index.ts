@@ -7,15 +7,16 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { Server, type Socket } from "socket.io";
 import {
-  shuffle,
   type Card,
   type ClientToServerEvents,
   type PlayerAction,
   type ServerToClientEvents,
   type TableConfig,
   type HandRecord,
+  type RngAuditReport,
 } from "@homegame/engine";
 import { IDLE_DELETE_MS, Store, type FsLike } from "./persist.js";
+import { RngAudit } from "./rngAudit.js";
 import { loadUsageConfig, UsageMeter, type UsageConfig } from "./usage.js";
 import { realScheduler, Table, UserError, type Scheduler, type TableSnapshot } from "./table.js";
 
@@ -48,7 +49,8 @@ export interface ServerOptions {
 export async function startServer(port: number, opts: ServerOptions = {}): Promise<{ close: () => Promise<void>; port: number; usage: UsageMeter }> {
   const now = opts.now ?? Date.now;
   const scheduler = opts.scheduler ?? realScheduler;
-  const deckSource = opts.deckSource ?? (() => shuffle());
+  // No deckSource in production: every deck is derived from the committed server seed plus the players' seeds (docs/FAIRNESS.md).
+  const deckSource = opts.deckSource;
   const dataDir = opts.dataDir === undefined ? (process.env.DATA_DIR ?? "./data") : opts.dataDir;
   const store = dataDir === null ? null : new Store({ dir: dataDir, scheduler, now, fs: opts.fs });
   let houseDefaults: Partial<TableConfig> | undefined = store ? await store.loadDefaults() : undefined;
@@ -58,6 +60,8 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
     config: { ...loadUsageConfig(), ...opts.budget },
   });
   await meter.start();
+  const audit = new RngAudit({ dir: dataDir, scheduler, now, fs: opts.fs });
+  await audit.load();
   let budgetNote: string | null = meter.notice();
 
   const app = express();
@@ -131,7 +135,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
 
   function makeTable(tableId: string, snapshot?: TableSnapshot): Table {
     const t: Table = new Table({
-      tableId, now, scheduler, deckSource, config: houseDefaults, snapshot,
+      tableId, now, scheduler, deckSource, onHandRecorded: (id, rec) => audit.record(id, rec), config: houseDefaults, snapshot,
       onChange: () => {
         broadcast(tableId);
         if (store) store.markDirty(tableId, () => (tables.get(tableId) === t ? t.snapshot() : null));
@@ -158,6 +162,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
         sockets.delete(snap.tableId);
       }
     }
+    for (const [id, t] of tables) audit.backfill(id, t.snapshot().history);
     if (tables.size > 0) console.log(`Restored ${tables.size} table(s) from ${dataDir}`);
   }
 
@@ -273,6 +278,13 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       throw new UserError("Ask the dealer for more chips");
     }));
 
+    // Client seed for the next hand's shuffle. Bad or late seeds are ignored without an error.
+    on("seed", handle((raw) => {
+      const { table, playerId } = ctx();
+      const p = obj(raw);
+      table.submitSeed(playerId, p.handNumber, p.clientSeed);
+    }));
+
     on("extendTime", handle(() => {
       const { table, playerId } = ctx();
       table.extendTime(playerId);
@@ -287,6 +299,17 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
         (ack as (r: HandRecord | null) => void)(table.getHand(n));
       } catch (e) {
         (ack as (r: null) => void)(null);
+        fail(e);
+      }
+    });
+    onAck("getRngAudit", (raw, ack) => {
+      if (typeof ack !== "function") return;
+      try {
+        const scope = raw && typeof raw === "object" ? (raw as Record<string, unknown>).scope : undefined;
+        if (scope !== "site" && scope !== "table") throw new UserError("Invalid request.");
+        const { table } = ctx();
+        (ack as (r: RngAuditReport) => void)(scope === "site" ? audit.siteReport() : audit.tableReport(table.snapshot().history));
+      } catch (e) {
         fail(e);
       }
     });
@@ -427,6 +450,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
         usage: meter,
         close: async () => {
           clearInterval(gc);
+          await audit.flush();
           if (store) await store.flush(); // before dispose: timers are cleared, state stays
           for (const t of tables.values()) t.dispose();
           await new Promise<void>((res) => void io.close(() => res()));

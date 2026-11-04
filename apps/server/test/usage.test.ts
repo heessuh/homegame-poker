@@ -79,7 +79,15 @@ describe("UsageMeter", () => {
     const { clock, meter, dir } = meterAt(Date.UTC(2026, 10, 3, 12));
     await meter.start();
     clock.advance(60_000);
-    await new Promise((r) => setTimeout(r, 50));
+    // The tick's write is async: wait for it to land instead of guessing a delay (was flaky under load).
+    for (let i = 0; i < 300; i++) {
+      try {
+        if (read(dir!).months["2026-11"]?.runtimeSeconds === 60) break;
+      } catch {
+        /* file not written yet */
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
     expect(read(dir!).months["2026-11"]!.runtimeSeconds).toBeCloseTo(60, 5);
     await meter.stop();
     expect(read(dir!).months["2026-11"]!.runtimeSeconds).toBeCloseTo(60, 5);

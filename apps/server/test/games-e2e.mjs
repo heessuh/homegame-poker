@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../../..");
-const { VARIANTS, bestLowAny } = await import(pathToFileURL(join(root, "packages/engine/dist/index.js")).href);
+const { VARIANTS, bestLowAny, deriveDeck, seedHash, buildMaterial } = await import(pathToFileURL(join(root, "packages/engine/dist/index.js")).href);
 
 // ------------------------------------------------------------------ args
 const argv = process.argv.slice(2);
@@ -39,6 +39,15 @@ const pickOf = (a) => a[rnd(a.length)];
 const money = (n) => `$${Math.floor(n / 100)}.${String(n % 100).padStart(2, "0")}`;
 const MONEY_RE = /\$\d+\.\d{2}/;
 const sha = (s) => createHash("sha256").update(s).digest("hex");
+/** Provably fair data of a HandRecord must re-derive the revealed deck. Skipped for servers that predate it (record has no `fair`). */
+function fairOk(g, rec, label) {
+  const f = rec.fair;
+  if (!f) return;
+  g.ok(f.algorithm === "mochapoker-v1", `${label}: unknown fairness algorithm ${f.algorithm}`);
+  g.ok(seedHash(f.serverSeed) === f.serverSeedHash, `${label}: sha256(serverSeed) != published serverSeedHash`);
+  g.ok(f.material === buildMaterial(rec.tableId ?? f.material.split("|")[1], rec.handNumber, f.clientSeeds), `${label}: fair.material does not match the client seeds`);
+  g.ok(deriveDeck(f.serverSeed, f.material).join(",") === rec.reveal.deck.join(","), `${label}: revealed deck != deck derived from the fair data`);
+}
 const tag = () => Date.now().toString(36).slice(-6) + randomBytes(2).toString("hex");
 
 // ------------------------------------------------------------------ results
@@ -164,6 +173,10 @@ function connect(ctx, g, tableId, name, token, opts = {}) {
   s.on("connect", () => s.emit("join", { tableId, name, playerToken: token }));
   s.on("state", (v) => {
     c.v = v; c.n++; c.pid = v.you.playerId;
+    if (v.fairness) {
+      const key = `${v.fairness.nextHandNumber}|${v.fairness.serverSeedHash}`;
+      if (c.fairKey !== key) { c.fairKey = key; s.emit("seed", { handNumber: v.fairness.nextHandNumber, clientSeed: randomBytes(16).toString("hex") }); }
+    }
     leakCheck(c, v, g);
     if (c.auto) {
       const l = v.hand?.legal;
@@ -348,6 +361,7 @@ async function playGame(g, ctx, variant, n, hands, policy = POLICY) {
     g.ok(rec.reveal.deck.length === 52, `hand ${i}: revealed deck has ${rec.reveal.deck.length} cards`);
     g.ok(sha(`${rec.reveal.salt}:${rec.reveal.deck.join(",")}`) === rec.deckHash, `hand ${i}: deckHash != sha256(salt:deck)`);
     g.ok(rec.deckHash === hv.deckHash, `hand ${i}: record deckHash differs from the one shown during the hand`);
+    fairOk(g, rec, `hand ${i}`);
     if (rec.summary.some((l) => /Discards reshuffled/.test(l))) stats.reshuffles++;
     if (variant === "plo4-lo" || variant === "fyst") lowHook(g, variant, hv, rec, stats);
     if (variant === "nlhe-hilo") hiloHook(g, hv, rec, stats);
@@ -752,6 +766,7 @@ async function scenPersistence(g, ctx) {
     expect(v.handList.length === 1, `handList after restart has ${v.handList.length} entries`);
     const rec = await new Promise((res) => fresh[0].s.emit("getHand", { handNumber: 1 }, res));
     expect(!!rec && sha(`${rec.reveal.salt}:${rec.reveal.deck.join(",")}`) === rec.deckHash, "deck commitment of the resumed hand does not verify");
+    if (rec) fairOk(g, rec, "resumed hand");
   }
 }
 

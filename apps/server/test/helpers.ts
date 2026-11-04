@@ -40,13 +40,13 @@ export interface Rig {
 }
 
 /** Table with n players joined (tokens token-0.., names P0..), none seated. */
-export function rig(n: number, config: Partial<TableConfig> = {}, deck: () => Card[] = () => freshDeck()): Rig {
+export function rig(n: number, config: Partial<TableConfig> = {}, deck: (() => Card[]) | null = () => freshDeck()): Rig {
   const clock = new FakeClock();
   const table = new Table({
     tableId: "test-table",
     now: clock.now,
     scheduler: clock,
-    deckSource: deck,
+    deckSource: deck ?? undefined, // null: use the derived provably fair deck
     onChange: () => undefined,
     config: { ...LEGACY, ...config },
   });

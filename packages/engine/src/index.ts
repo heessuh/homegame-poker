@@ -5,3 +5,7 @@ export * from "./protocol.js";
 export * from "./evaluate.js";
 export * from "./game.js";
 export * from "./limits.js";
+export * from "./fair.js";
+export * from "./fairshuffle.js";
+export * from "./stats.js";
+export * from "./audit.js";

@@ -19,6 +19,8 @@ export interface StartHandInput {
   buttonSeat: number;
   smallBlind: number;
   bigBlind: number;
+  /** Provably fair shuffle state (server-secret): enables derived mid-hand reshuffles in stud. Omit to use the CSPRNG shuffle(). */
+  fair?: { key: string; material: string };
   /** Already shuffled, 52 cards. */
   deck: Card[];
   /** Stud games only (5-Murder): ante, bet sizes, exchange cost. Defaults to DEFAULT_STUD. */
@@ -89,6 +91,8 @@ export interface HandState {
   raises?: number;
   /** Player ids still to act in the current exchange/declare stage, in order. */
   queue?: string[];
+  /** Server-secret provably fair state: serverSeed (key), hand material and the number of reshuffles so far. Never send to clients. */
+  fair?: { key: string; material: string; reshuffles: number };
   /** Discarded and folded cards (server-secret), reshuffled when the deck runs out. */
   discards?: Card[];
   /** True once every live player has declared (declarations may then be shown). */
@@ -193,6 +197,7 @@ export function startHand(input: StartHandInput): HandState {
     currentBet: input.bigBlind,
     lastRaiseSize: input.bigBlind,
     deck: [...input.deck],
+    ...(input.fair ? { fair: { ...input.fair, reshuffles: 0 } } : {}),
     burned: [],
     startingTotal: players.reduce((t, p) => t + p.stack, 0),
     pots: null,

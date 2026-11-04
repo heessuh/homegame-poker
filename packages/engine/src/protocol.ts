@@ -219,11 +219,22 @@ export interface LedgerEntry {
   net: number; // stack + cashOuts - buyIns
 }
 
+/** Revealed after a hand completes so anyone can recompute the deck. See docs/FAIRNESS.md. */
+export interface HandFair {
+  algorithm: "mochapoker-v1";
+  serverSeed: string; // 64 hex chars
+  serverSeedHash: string; // sha256 of the seed bytes, published before the deal
+  clientSeeds: Record<string, string>; // playerId -> 32 hex chars, only players who contributed
+  material: string;
+}
+
 export interface HandRecord {
   handNumber: number;
   variant: VariantId;
   deckHash: string;
   reveal: { deck: Card[]; salt: string };
+  /** Provably fair shuffle data ("mochapoker-v1"); absent on records made before it existed. */
+  fair?: HandFair;
   board: Card[];
   winners: WinnerView[];
   summary: string[];
@@ -297,6 +308,8 @@ export interface TableView {
   tournament: TournamentView | null; // null in cash mode
   /** Site-wide message (e.g. the monthly budget has been reached); null normally. */
   siteNotice: string | null;
+  /** Commitment to the server seed for the NEXT hand; clients answer with a "seed" event. Null when fair shuffling is off (test decks). */
+  fairness: { nextHandNumber: number; serverSeedHash: string } | null;
 }
 
 // ---- Socket.IO events ----
@@ -332,9 +345,59 @@ export interface ClientToServerEvents {
   /** Tournament clock controls while running. */
   "host:tournamentLevel": (p: { delta: 1 | -1 }) => void; // jump a level forward/back; new blinds apply next hand
   "host:tournamentClock": (p: { addMs: number }) => void; // add/remove time on the current level
+  /** RNG audit: observed deal statistics against exact poker math, for this table or the whole site. */
+  getRngAudit: (p: { scope: RngAuditScope }, ack: (report: RngAuditReport) => void) => void;
+  /** Contribute a random client seed (32 hex chars) to the shuffle of hand nextHandNumber. One per player; later ones replace earlier ones until the deal. */
+  seed: (p: { handNumber: number; clientSeed: string }) => void;
 }
 
 export interface ServerToClientEvents {
   state: (view: TableView) => void;
   error: (p: { message: string }) => void;
+}
+
+// ---- RNG audit ----
+export type RngAuditScope = "site" | "table";
+export type RngAuditVerdict = "fair" | "unusual" | "investigate" | "too-few-hands";
+
+export interface RngAuditRow {
+  label: string;
+  /** How many samples fell in this row. */
+  observed: number;
+  /** What a fair, uniformly shuffled deck gives (exact poker math), in percent. */
+  expectedPct: number;
+  observedPct: number;
+  /** The range (percent) the observed share should land in 95% of the time for a fair deck. */
+  ci95: [number, number];
+  /** Per-row detail, e.g. the p-value of one deck position. */
+  note?: string;
+}
+
+export interface RngAuditLens {
+  id: string;
+  title: string;
+  plainEnglish: string;
+  /** Number of samples this lens drew (not hands). */
+  samples: number;
+  rows: RngAuditRow[];
+  chiSquare: number;
+  df: number;
+  /** NaN is sent as null by JSON; clients treat a missing p-value as "not enough data". */
+  pValue: number | null;
+  verdict: RngAuditVerdict;
+  /** Hands needed before this lens can be tested at all. */
+  minHands: number;
+}
+
+export interface RngAuditReport {
+  scope: RngAuditScope;
+  hands: number;
+  /** ISO time the counting began. */
+  since: string;
+  lenses: RngAuditLens[];
+  /**
+   * All testable lenses combined (Bonferroni: smallest p-value × number of lenses tested), so that running
+   * several checks at once doesn't make a fair deck look "unusual" by chance. Null until any lens is testable.
+   */
+  overall: { verdict: RngAuditVerdict; pValue: number; tested: number } | null;
 }

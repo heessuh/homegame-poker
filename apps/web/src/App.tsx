@@ -13,6 +13,7 @@ import type { FixtureId } from "./mock";
 import { AwardPanel } from "./Award";
 import { TournamentHud } from "./Tournament";
 import { Avatar, AvatarPicker, Modal, MoneyInput, Wordmark, loadAvatar, saveAvatar } from "./ui";
+import { newClientSeed, rememberSeed } from "./fairness";
 import { fmt, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
@@ -126,6 +127,19 @@ function LiveRoom({ tableId, name, avatar, onAvatar, showToast }: { tableId: str
   const send = useMemo<Send>(() => (ev, ...args) => {
     (socketRef.current?.emit as unknown as (e: string, ...a: unknown[]) => void)?.(ev, ...args);
   }, []);
+
+  // Provably fair shuffle: every new server-seed commitment is answered once with a fresh random client seed.
+  const fairSeen = useRef<string | null>(null);
+  const fair = view?.fairness ?? null;
+  useEffect(() => {
+    if (!fair) return;
+    const key = `${tableId}|${fair.nextHandNumber}|${fair.serverSeedHash}`;
+    if (fairSeen.current === key) return;
+    fairSeen.current = key;
+    const clientSeed = newClientSeed();
+    rememberSeed({ tableId: view!.tableId, handNumber: fair.nextHandNumber, serverSeedHash: fair.serverSeedHash, clientSeed });
+    send("seed", { handNumber: fair.nextHandNumber, clientSeed });
+  }, [fair?.nextHandNumber, fair?.serverSeedHash, send, tableId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!view) return <main className="landing"><p className="muted">{connected ? "Joining table…" : "Connecting…"}</p></main>;
   return <Room view={view} send={send} connected={connected} avatar={avatar} onAvatar={onAvatar} />;

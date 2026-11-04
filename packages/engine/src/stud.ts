@@ -3,6 +3,8 @@
 // game.ts dispatches here for variants with kind "stud"; callers keep using startHand/legalActions/applyAction.
 import type { Card } from "./cards.js";
 import { shuffle } from "./shuffle.js";
+import { derivedShuffle } from "./fairshuffle.js";
+import { reshufflePrefix } from "./fair.js";
 import { bestHigh, bestLowAny, type HighResult, type LowResult } from "./evaluate.js";
 import { DEFAULT_STUD, type Declaration, type LegalActions, type PlayerAction, type StudStakes, type WinnerView } from "./protocol.js";
 import { houseLimitSizing, requiredIncrement, validateSpreadRules, type SpreadRules } from "./limits.js";
@@ -82,7 +84,10 @@ function draw(s: HandState): Card {
   if (s.deck.length === 0) {
     const d = discardsOf(s);
     if (d.length === 0) throw new Error("deck exhausted");
-    s.deck = shuffle(d);
+    if (s.fair) {
+      s.fair.reshuffles++;
+      s.deck = derivedShuffle(d, s.fair.key, reshufflePrefix(s.fair.material, s.fair.reshuffles));
+    } else s.deck = shuffle(d);
     s.discards = [];
     s.log.push("Discards reshuffled");
   }
@@ -147,6 +152,7 @@ export function startStudHand(input: StartHandInput): HandState {
     currentBet: 0,
     lastRaiseSize: 0,
     deck: [...input.deck],
+    ...(input.fair ? { fair: { ...input.fair, reshuffles: 0 } } : {}),
     burned: [],
     startingTotal: players.reduce((t, p) => t + p.stack, 0),
     pots: null,

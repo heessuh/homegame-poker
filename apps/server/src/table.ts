@@ -5,13 +5,19 @@ import {
   DEFAULT_STUD,
   VARIANTS,
   applyAction,
+  CLIENT_SEED_RE,
+  FAIR_ALGORITHM,
+  buildMaterial,
   commitDeck,
+  deriveDeck,
+  seedHash,
   isValidAvatar,
   legalActions,
   potsView,
   startHand,
   timeoutAction,
   type Card,
+  type HandFair,
   type HandListItem,
   type HandRecord,
   type HandState,
@@ -53,11 +59,14 @@ export interface TableOptions {
   tableId: string;
   now: () => number;
   scheduler: Scheduler;
-  deckSource: () => Card[];
+  /** Test hook: a fixed deck source. Omit in production: decks are then derived (provably fair, see docs/FAIRNESS.md). */
+  deckSource?: () => Card[];
   onChange: () => void;
   config?: Partial<TableConfig>;
   /** Resume a table saved earlier (see Table.snapshot). Call resume() once the table is registered. */
   snapshot?: TableSnapshot;
+  /** Called once for each finished HandRecord as it is added to the history (used by the RNG audit). */
+  onHandRecorded?: (tableId: string, rec: HandRecord) => void;
 }
 
 export interface Player {
@@ -118,8 +127,13 @@ export interface TableSnapshot {
     startStacks: [string, number][];
     awarded: WinnerView[] | null;
     extended: boolean;
+    /** Revealed with the HandRecord when the hand completes (contains the secret server seed until then). */
+    fair?: HandFair | null;
   } | null;
   pendingAward: PendingAward | null;
+  /** Secret seed for the next hand and the client seeds collected so far. */
+  nextServerSeed?: string;
+  seeds?: Record<string, string>;
   lastHand: HandRecord | null;
   history: HandRecord[];
   handCounter: number;
@@ -143,6 +157,8 @@ interface HandCtx {
   startStacks: Map<string, number>;
   /** What the host actually awarded, once done (host award mode). */
   awarded: WinnerView[] | null;
+  /** Provably fair data; null when a test deckSource supplied the deck. Secret until the hand completes. */
+  fair: HandFair | null;
 }
 
 const LOG_CAP = 20_000;
@@ -204,8 +220,13 @@ export class Table {
   readonly tableId: string;
   private readonly now: () => number;
   private readonly sched: Scheduler;
-  private readonly deckSource: () => Card[];
+  private readonly deckSource: (() => Card[]) | undefined;
+  /** Secret seed for the NEXT hand; its hash is published in TableView.fairness. */
+  private nextServerSeed = randomBytes(32).toString("hex");
+  /** Client seeds received for the next hand (playerId -> hex), cleared when the deck is built. */
+  private seeds = new Map<string, string>();
   private readonly onChange: () => void;
+  private readonly onHandRecorded: ((tableId: string, rec: HandRecord) => void) | undefined;
 
   private config: TableConfig;
   private pendingConfig: TableConfig | null = null;
@@ -242,6 +263,7 @@ export class Table {
     this.sched = opts.scheduler;
     this.deckSource = opts.deckSource;
     this.onChange = opts.onChange;
+    this.onHandRecorded = opts.onHandRecorded;
     this.config = mergeConfig(DEFAULT_CONFIG, opts.config);
     if (this.config.mode === "tournament") this.t = this.newTourney();
     this.idleSince = this.now();
@@ -266,10 +288,12 @@ export class Table {
       hand: h
         ? {
             state: h.state, deckHash: h.deckHash, reveal: h.reveal, participants: [...h.participants],
-            startStacks: [...h.startStacks], awarded: h.awarded, extended: h.extended,
+            startStacks: [...h.startStacks], awarded: h.awarded, extended: h.extended, fair: h.fair,
           }
         : null,
       pendingAward: this.pendingAward,
+      nextServerSeed: this.nextServerSeed,
+      seeds: Object.fromEntries(this.seeds),
       lastHand: this.lastHand,
       history: this.history,
       handCounter: this.handCounter,
@@ -301,10 +325,12 @@ export class Table {
     this.hand = s.hand
       ? {
           state: s.hand.state, deckHash: s.hand.deckHash, reveal: s.hand.reveal, participants: new Set(s.hand.participants),
-          actionDeadline: null, extended: s.hand.extended, startStacks: new Map(s.hand.startStacks), awarded: s.hand.awarded,
+          actionDeadline: null, extended: s.hand.extended, startStacks: new Map(s.hand.startStacks), awarded: s.hand.awarded, fair: s.hand.fair ?? null,
         }
       : null;
     this.pendingAward = s.pendingAward;
+    if (typeof s.nextServerSeed === "string" && /^[0-9a-f]{64}$/.test(s.nextServerSeed)) this.nextServerSeed = s.nextServerSeed;
+    this.seeds = new Map(Object.entries(s.seeds ?? {}));
     this.lastHand = s.lastHand;
     this.history = s.history ?? [];
     this.handCounter = s.handCounter;
@@ -338,6 +364,18 @@ export class Table {
     this.addLog("Saved these settings as the house defaults");
     this.changed();
     return cloneConfig(this.pendingConfig ?? this.config);
+  }
+
+  /**
+   * A player's random seed for the shuffle of their next hand. Silently ignored unless it is for the upcoming
+   * hand and well-formed; a later seed replaces an earlier one until the deck is built.
+   */
+  submitSeed(playerId: string, handNumber: unknown, clientSeed: unknown): void {
+    if (this.deckSource || !this.players.has(playerId)) return;
+    if (handNumber !== this.handCounter + 1) return;
+    if (typeof clientSeed !== "string" || !CLIENT_SEED_RE.test(clientSeed)) return;
+    this.seeds.set(playerId, clientSeed);
+    this.onChange();
   }
 
   getHand(handNumber: unknown): HandRecord | null {
@@ -1052,7 +1090,21 @@ export class Table {
     const button = seatsAsc.find((s) => s > this.buttonSeat) ?? seatsAsc[0]!;
     this.buttonSeat = button;
     const blinds = this.currentBlinds();
-    const deck = this.deckSource();
+    const handNumber = this.handCounter + 1;
+    // Provably fair deal: the server seed was committed (hash published) before any client seed arrived.
+    const serverSeed = this.nextServerSeed;
+    const clientSeeds: Record<string, string> = {};
+    for (const p of el) {
+      const cs = this.seeds.get(p.id);
+      if (cs !== undefined) clientSeeds[p.id] = cs;
+    }
+    const material = buildMaterial(this.tableId, handNumber, clientSeeds);
+    const deck = this.deckSource ? this.deckSource() : deriveDeck(serverSeed, material);
+    const fair: HandFair | null = this.deckSource
+      ? null
+      : { algorithm: FAIR_ALGORITHM, serverSeed, serverSeedHash: seedHash(serverSeed), clientSeeds, material };
+    this.nextServerSeed = randomBytes(32).toString("hex");
+    this.seeds.clear();
     const { hash, reveal } = commitDeck(deck);
     this.handCounter++;
     const isStud = VARIANTS[this.config.variant].kind === "stud";
@@ -1068,14 +1120,16 @@ export class Table {
       smallBlind: blinds.smallBlind,
       bigBlind: blinds.bigBlind,
       deck,
+      ...(fair ? { fair: { key: serverSeed, material } } : {}),
       ...extra,
     } as StartHandInput);
     this.hand = {
       state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null, extended: false,
-      startStacks: new Map(el.map((p) => [p.id, p.stack])), awarded: null,
+      startStacks: new Map(el.map((p) => [p.id, p.stack])), awarded: null, fair,
     };
     const btn = this.seatOwner(button);
     this.addLog(`Hand #${this.handCounter} (${VARIANTS[this.config.variant].name}), button: ${btn?.name ?? "?"}`);
+    if (fair) this.addLog(`Shuffle seeds: ${Object.keys(clientSeeds).length} of ${el.length} players`);
     if (isStud) this.addLog(`Antes: ${this.m(this.config.stud.ante)} each`);
     this.settle();
   }
@@ -1118,6 +1172,7 @@ export class Table {
       variant: h.state.variant,
       deckHash: h.deckHash,
       reveal: h.reveal,
+      ...(h.fair ? { fair: h.fair } : {}),
       board: [...h.state.board],
       winners: o.winners,
       // The engine logs "<playerId> (seat N)" with 0-based seats; show names instead.
@@ -1135,6 +1190,7 @@ export class Table {
       endedAt: this.now(),
     };
     this.history.push(this.lastHand);
+    try { this.onHandRecorded?.(this.tableId, this.lastHand); } catch (e) { console.error("onHandRecorded failed", e); }
     if (this.history.length > HISTORY_CAP) this.history.splice(0, this.history.length - HISTORY_CAP);
     const foldEnd = o.winners.length > 0 && o.winners.every((w) => w.handName === null);
     this.nextDelay = foldEnd ? FOLD_DELAY : SHOWDOWN_DELAY;
@@ -1633,6 +1689,7 @@ export class Table {
       canExtend: this.canExtendNow(me),
       tournament: this.tournamentView(),
       siteNotice: this.budgetNotice,
+      fairness: this.deckSource ? null : { nextHandNumber: this.handCounter + 1, serverSeedHash: seedHash(this.nextServerSeed) },
     };
   }
 }

@@ -67,7 +67,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p3", name: "Okonkwo", buyIns: 2000, cashOuts: 0, stack: 2150, net: 150 },
       { playerId: "p4", name: "Priya", buyIns: 4000, cashOuts: 0, stack: 4800, net: 800 },
     ],
-    pendingAward: null, siteNotice: null, handList: [], canExtend: false, tournament: null,
+    pendingAward: null, siteNotice: null, fairness: null, handList: [], canExtend: false, tournament: null,
     log: [
       "Hand #12 started (5-Card Pot-Limit Omaha High)",
       "Priya posts the small blind $0.10",
@@ -116,7 +116,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p3", name: "Bo", buyIns: 1000, cashOuts: 0, stack: 0, net: -1000 },
       { playerId: "p4", name: "Chen", buyIns: 1000, cashOuts: 0, stack: 1500, net: 500 },
     ],
-    pendingAward: null, siteNotice: null, tournament: null,
+    pendingAward: null, siteNotice: null, fairness: null, tournament: null,
     log: ["Hand #31 started", "Alice raises to $0.40", "You call $0.40", "Chen calls $0.40", "Bo folds", "Showdown", "Chen wins $24.60 with Three of a kind, Nines"],
   };
 
@@ -139,7 +139,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p2", name: "Dana", buyIns: 2000, cashOuts: 0, stack: 2000, net: 0 },
       { playerId: "p5", name: "Eli", buyIns: 1000, cashOuts: 0, stack: 1000, net: 0 },
     ],
-    pendingAward: null, siteNotice: null, handList: [], canExtend: false, tournament: null,
+    pendingAward: null, siteNotice: null, fairness: null, handList: [], canExtend: false, tournament: null,
     log: ["Table created", "Dana sat at seat 3 with $20", "Eli sat at seat 6 with $10"],
   };
 
@@ -175,7 +175,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p4", name: "Priya", buyIns: 5000, cashOuts: 0, stack: 4400, net: -600 },
     ],
     log: ["Level 5 started: 300/600", "Okonkwo is eliminated in 6th place", "Sam is eliminated in 5th place", "Hand #58 started", "Marta raises to 400"],
-    pendingAward: null, siteNotice: null, handList: [], canExtend: false,
+    pendingAward: null, siteNotice: null, fairness: null, handList: [], canExtend: false,
     tournament: {
       status: "running", levelIndex: 4, level: levels[4], nextLevel: levels[5], levelEndsAt: now + 7 * 60000 + 23000,
       levelRemainingMs: 7 * 60000 + 23000, startingStack: 5000, lateRegOpen: false, playersLeft: 4,
@@ -245,7 +245,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   });
   const m5Base = {
     tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true }, config: m5Cfg, pendingConfig: null,
-    status: "playing" as const, lastHand: null, ledger: m5Ledger, pendingAward: null, siteNotice: null, handList: [], canExtend: false, tournament: null,
+    status: "playing" as const, lastHand: null, ledger: m5Ledger, pendingAward: null, siteNotice: null, fairness: null, handList: [], canExtend: false, tournament: null,
   };
   const noBet = { canFold: false, canCheck: false, callAmount: 0, minRaiseTo: null, maxRaiseTo: null };
 
