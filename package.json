@@ -2,14 +2,25 @@
   "name": "homegame-poker",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build": "npm run build -w @homegame/engine && npm run build -w @homegame/web && npm run build -w @homegame/server",
     "dev:server": "npm run dev -w @homegame/server",
     "dev:web": "npm run dev -w @homegame/web",
     "test": "npm test -w @homegame/engine",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "start": "node apps/server/dist/index.js"
+    "start": "node apps/server/dist/index.js",
+    "qa": "node scripts/qa.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "test:server": "npm test -w @homegame/server",
+    "test:games": "node apps/server/test/games-e2e.mjs --json test-reports/games-local.json",
+    "test:live": "node apps/server/test/games-e2e.mjs --url https://mochapoker.fly.dev --hands 3 --json test-reports/games-live.json",
+    "test:all": "npm test && npm run test:server && npm run test:games"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

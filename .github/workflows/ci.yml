@@ -11,4 +11,11 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      # Engine + server unit tests, then every game played end to end against a local server.
+      - run: npm run test:all
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: test-reports/
+          if-no-files-found: ignore
