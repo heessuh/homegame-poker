@@ -94,10 +94,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # rng-logs is created before anything can fail, so the upload step always has something to
+          # upload (the build log at least) and a missing result is never silent.
+          mkdir -p "$GITHUB_WORKSPACE/rng-logs"
+          exec > >(tee "$GITHUB_WORKSPACE/rng-logs/practrand-build.txt") 2>&1
           mkdir -p "$RUNNER_TEMP/practrand-src" && cd "$RUNNER_TEMP/practrand-src"
-          curl -fsSL --retry 5 --retry-delay 5 -A "Mozilla/5.0" -o pr.zip \
+          # No spoofed browser User-Agent: SourceForge answers a bare "Mozilla/5.0" UA with HTTP 403 (that is
+          # what broke run 41866825867); curl's own UA gets the normal mirror redirect.
+          curl -fsSL --retry 5 --retry-delay 5 -o pr.zip \
             "https://downloads.sourceforge.net/project/pracrand/PractRand-pre0.95.zip"
-          sha256sum pr.zip
+          echo "5738c322ccb983b63fbe693f305afa2a7c73e64a80b303c9139278c453ce27b4  pr.zip" | sha256sum -c -
           unzip -q pr.zip
           root=$(dirname "$(dirname "$(find . -path '*include/PractRand/rng_basics.h' | head -1)")")
           root=$(dirname "$root")
@@ -140,6 +146,8 @@ jobs:
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "Last length reached: ${reached:-none}"
+          if [ -n "$anomalies" ]; then echo "Anomalies:"; printf '%s\n' "$anomalies"; fi
           if [ -z "$reached" ]; then echo "PractRand produced no output"; exit 1; fi
           if [ "$fails" != "0" ]; then echo "PractRand reported FAIL"; exit 1; fi
       - uses: actions/upload-artifact@v4
@@ -177,7 +185,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/sts-src" && cd "$RUNNER_TEMP/sts-src"
           curl -fsSL --retry 5 --retry-delay 5 -A "Mozilla/5.0" -o sts.zip \
             "https://csrc.nist.gov/CSRC/media/Projects/Random-Bit-Generation/documents/sts-2_1_2.zip"
-          sha256sum sts.zip
+          echo "0238d2f1d26e120e3cc748ed2d4c674cdc636de37fc4027c76cc2a394fff9157  sts.zip" | sha256sum -c -
           unzip -q sts.zip
           root=$(dirname "$(find . -name makefile -o -name Makefile | head -1)")
           cd "$root"
@@ -192,10 +200,20 @@ jobs:
         run: |
           set -euo pipefail
           cd "$STS_DIR"
+          rm -f experiments/AlgorithmTesting/finalAnalysisReport.txt
           # Prompts: generator 0 = input file; file; test 1 = all tests; 0 = default parameters;
           # 100 bitstreams; input format 1 = binary.
+          # STS 2.1.2's assess.c ends main() with "return 1;" even on success, so its exit status carries no
+          # information; under pipefail it used to abort this step before the report was copied (run
+          # 41866825867). Success is judged by the report file instead.
+          set +o pipefail
           printf '0\n%s\n1\n0\n100\n1\n' "$GITHUB_WORKSPACE/rng-logs/nist-input.bin" | ./assess 1000000 | tee "$GITHUB_WORKSPACE/rng-logs/nist-assess-stdout.txt"
+          echo "assess exit status: ${PIPESTATUS[1]}"
+          set -o pipefail
+          test -s experiments/AlgorithmTesting/finalAnalysisReport.txt || { echo "assess wrote no finalAnalysisReport.txt"; exit 1; }
           cp experiments/AlgorithmTesting/finalAnalysisReport.txt "$GITHUB_WORKSPACE/rng-logs/finalAnalysisReport.txt"
+          cat "$GITHUB_WORKSPACE/rng-logs/finalAnalysisReport.txt"
+          cp -r experiments/AlgorithmTesting "$GITHUB_WORKSPACE/rng-logs/sts-AlgorithmTesting"
       - name: Fallback - nistrng (Python implementation of SP 800-22)
         if: steps.sts.outcome != 'success'
         shell: bash
@@ -232,16 +250,16 @@ jobs:
           mode = "${{ matrix.mode }}"
           summ = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
           if not os.path.exists(path):
-              summ.write(f"## NIST SP 800-22 ({mode})\n\nNo report produced.\n"); sys.exit(1)
-          row = re.compile(r"^\s*(?:\d+\s+){10}([0-9.]+)\s*\*?\s+(\d+)/(\d+)\s*\*?\s+(\S+)")
+              print("No report produced"); summ.write(f"## NIST SP 800-22 ({mode})\n\nNo report produced.\n"); sys.exit(1)
+          row = re.compile(r"^\s*(?:\d+\s+){10}([0-9.]+|-+)\s*\*?\s+(\d+)/(\d+)\s*\*?\s+(\S+)")
           rows = [m.groups() for m in map(row.match, open(path)) if m]
           if not rows:
-              summ.write(f"## NIST SP 800-22 ({mode})\n\nReport had no result rows.\n"); sys.exit(1)
+              print("Report had no result rows"); summ.write(f"## NIST SP 800-22 ({mode})\n\nReport had no result rows.\n"); sys.exit(1)
           def accept(m):  # STS acceptance: 0.99 - 3*sqrt(0.99*0.01/m)
               return 0.99 - 3 * math.sqrt(0.99 * 0.01 / m)
           below, gross, unif = [], [], []
           for p, k, m, name in rows:
-              p, k, m = float(p), int(k), int(m)
+              p, k, m = (float(p) if p[0] != "-" else 1.0), int(k), int(m)  # "----": too few sequences for a uniformity test
               if k / m < accept(m): below.append((name, k, m, p))
               if k / m < 0.90: gross.append((name, k, m, p))
               if p < 1e-5: unif.append((name, k, m, p))
@@ -254,6 +272,8 @@ jobs:
                      f"or more than {allowed} rows (5%) are below the acceptance proportion.\n\n")
           if below:
               summ.write("```\n" + "\n".join(f"{n}: {k}/{m} (uniformity p={p})" for n, k, m, p in below) + "\n```\n")
+          print(f"NIST ({mode}): {len(rows)} rows, {len(below)} below acceptance (allowed {allowed}), {len(gross)} below 90%, {len(unif)} uniformity p < 1e-5")
+          for n, k, m, p in below: print(f"  below acceptance: {n}: {k}/{m} (uniformity p={p})")
           bad = bool(gross) or bool(unif) or len(below) > allowed
           if bad: print("NIST gate failed"); sys.exit(1)
           PY
