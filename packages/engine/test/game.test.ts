@@ -803,3 +803,102 @@ describe("Hold'em Hi/Lo (no qualifier)", () => {
     expect(out.winners.find((w) => w.half === "low")).toMatchObject({ playerId: "p0", amount: 2, handName: "Q-J-9-2-A" });
   });
 });
+
+// ---------- low-only Omaha games ----------
+
+describe("low-only Omaha games", () => {
+  const LOWBOARD: Card[] = ["2c", "4d", "7h", "Ks", "Js"];
+  // 7-4-3-2-A (best), 7-6-5-4-2 (second), 9-8-7-4-2 (worst) on LOWBOARD
+  const A1: Card[] = ["Ah", "3h", "Kh", "Kc"];
+  const A2: Card[] = ["As", "3s", "Qh", "Qc"];
+  const A3: Card[] = ["Ad", "3d", "Th", "Td"];
+  const B1: Card[] = ["5d", "6d", "Jh", "Jc"];
+  const C1: Card[] = ["8c", "9s", "Tc", "Ts"];
+  const limp3 = (s: HandState) => checkdown(seq(s, [[1, CALL], [2, CALL], [3, CHECK]]));
+  const limp2 = (s: HandState) => checkdown(seq(s, [[1, CALL], [2, CHECK]]));
+
+  it("plo4-lo8: the best qualifying low takes the whole pot", () => {
+    const holes = { 1: A1, 2: B1, 3: ["9h", "9d", "Qd", "Qs"] as Card[] };
+    const out = done(limp3(newHand({ variant: "plo4-lo8", stacks: { 1: 100, 2: 100, 3: 100 }, button: 1, holes, board: LOWBOARD })));
+    expect(out.winners).toEqual([{ playerId: "p1", amount: 6, potIndex: 0, half: "whole", handName: "7-4-3-2-A" }]);
+    expect(out.finalStacks).toEqual({ p1: 104, p2: 98, p3: 98 });
+  });
+
+  it("plo4-lo8: with no qualifying low the best high hand wins", () => {
+    const board: Card[] = ["Kc", "Qd", "Jh", "9s", "9c"];
+    const holes = { 1: ["Ah", "8d", "2h", "3h"] as Card[], 2: ["Th", "Td", "5d", "6d"] as Card[], 3: ["2s", "3s", "4h", "5h"] as Card[] };
+    const out = done(limp3(newHand({ variant: "plo4-lo8", stacks: { 1: 100, 2: 100, 3: 100 }, button: 1, holes, board })));
+    expect(out.winners).toHaveLength(1);
+    expect(out.winners[0]).toMatchObject({ playerId: "p2", amount: 6, half: "whole" });
+    expect(out.winners[0]!.handName).toMatch(/two pair/i);
+  });
+
+  it("plo4-lo8: short stack with the best low wins the main pot, the side pot goes to the other low", () => {
+    const holes = { 3: A1, 1: B1, 2: ["9h", "9d", "Qd", "Qs"] as Card[] };
+    let s = newHand({ variant: "plo4-lo8", stacks: { 1: 100, 2: 100, 3: 4 }, button: 1, holes, board: LOWBOARD });
+    s = checkdown(seq(s, [[1, raise(6)], [2, CALL], [3, CALL]]));
+    const out = done(s);
+    expect(out.winners).toHaveLength(2);
+    expect(out.winners[0]).toMatchObject({ playerId: "p3", amount: 12, potIndex: 0, half: "whole", handName: "7-4-3-2-A" });
+    expect(out.winners[1]).toMatchObject({ playerId: "p1", amount: 4, potIndex: 1, half: "whole", handName: "7-6-5-4-2" });
+  });
+
+  it("plo4-lo: a K-high low beats a pair", () => {
+    const board: Card[] = ["2c", "3d", "Kh", "Ks", "Kd"];
+    const holes = { 1: ["Jh", "Jc", "Js", "Jd"] as Card[], 2: ["Ah", "4h", "9c", "8c"] as Card[] };
+    const out = done(limp2(newHand({ variant: "plo4-lo", stacks: { 1: 100, 2: 100 }, button: 1, holes, board })));
+    expect(out.winners).toEqual([{ playerId: "p2", amount: 4, potIndex: 0, half: "whole", handName: "K-4-3-2-A" }]);
+  });
+
+  it("fyst: second-best low wins with three players", () => {
+    const holes = { 1: A1, 2: B1, 3: C1 };
+    const out = done(limp3(newHand({ variant: "fyst", stacks: { 1: 100, 2: 100, 3: 100 }, button: 1, holes, board: LOWBOARD })));
+    expect(out.winners).toEqual([{ playerId: "p2", amount: 6, potIndex: 0, half: "whole", handName: "7-6-5-4-2" }]);
+  });
+
+  it("fyst: all tied splits the pot", () => {
+    const holes = { 1: A1, 2: A2, 3: A3 };
+    const out = done(limp3(newHand({ variant: "fyst", stacks: { 1: 100, 2: 100, 3: 100 }, button: 1, holes, board: LOWBOARD })));
+    expect(out.winners.map((w) => [w.playerId, w.amount]).sort()).toEqual([["p1", 2], ["p2", 2], ["p3", 2]]);
+    expect(out.finalStacks).toEqual({ p1: 100, p2: 100, p3: 100 });
+  });
+
+  it("fyst: a tie for best skips the whole tied group", () => {
+    const holes = { 1: A1, 2: A2, 3: B1, 4: C1 };
+    const s = newHand({ variant: "fyst", stacks: { 1: 100, 2: 100, 3: 100, 4: 100 }, button: 1, holes, board: LOWBOARD });
+    const out = done(checkdown(seq(s, [[4, CALL], [1, CALL], [2, CALL], [3, CHECK]])));
+    expect(out.winners).toEqual([{ playerId: "p3", amount: 8, potIndex: 0, half: "whole", handName: "7-6-5-4-2" }]);
+  });
+
+  it("fyst: a tied second group splits", () => {
+    const B2: Card[] = ["5h", "6h", "Qd", "Qs"];
+    const holes = { 1: A1, 2: B1, 3: B2 };
+    const out = done(limp3(newHand({ variant: "fyst", stacks: { 1: 100, 2: 100, 3: 100 }, button: 1, holes, board: LOWBOARD })));
+    expect(out.winners.map((w) => [w.playerId, w.amount]).sort()).toEqual([["p2", 3], ["p3", 3]]);
+  });
+
+  it("fyst: heads-up the worse low wins", () => {
+    const out = done(limp2(newHand({ variant: "fyst", stacks: { 1: 100, 2: 100 }, button: 1, holes: { 1: A1, 2: B1 }, board: LOWBOARD })));
+    expect(out.winners).toEqual([{ playerId: "p2", amount: 4, potIndex: 0, half: "whole", handName: "7-6-5-4-2" }]);
+  });
+
+  it("fyst: a side pot with a single eligible player goes to that player", () => {
+    const holes = { 1: C1, 2: A1, 3: B1 };
+    let s = newHand({ variant: "fyst", stacks: { 1: 100, 2: 100, 3: 4 }, button: 1, holes, board: LOWBOARD });
+    s = seq(s, [[1, raise(6)], [2, CALL], [3, CALL]]);
+    s = seq(s, [[2, raise(8)], [1, FOLD]]);
+    const out = done(checkdown(s));
+    expect(out.winners).toHaveLength(2);
+    // main pot (p2, p3): second-best of two is the worse low, p3
+    expect(out.winners[0]).toMatchObject({ playerId: "p3", amount: 12, potIndex: 0 });
+    // dead money above the all-in: only p2 is eligible
+    expect(out.winners[1]).toMatchObject({ playerId: "p2", amount: 4, potIndex: 1 });
+  });
+
+  it("fyst: a fold-out wins as usual", () => {
+    let s = newHand({ variant: "fyst", stacks: { 1: 100, 2: 100, 3: 100 }, button: 1 });
+    s = seq(s, [[1, raise(6)], [2, FOLD], [3, FOLD]]);
+    const out = done(s);
+    expect(out.winners).toEqual([{ playerId: "p1", amount: 5, potIndex: 0, half: "whole", handName: null }]);
+  });
+});

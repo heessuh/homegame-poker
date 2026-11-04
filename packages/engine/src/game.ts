@@ -1,6 +1,6 @@
 // Poker hand state machine. Pure functions over a JSON-serializable HandState.
 import type { Card } from "./cards.js";
-import { VARIANTS, type VariantId } from "./variants.js";
+import { VARIANTS, splitOf, type VariantId } from "./variants.js";
 import type { LegalActions, Phase, PlayerAction, PotView, WinnerView } from "./protocol.js";
 import { bestHigh, bestLow8, bestLowAny, type HighResult, type LowResult } from "./evaluate.js";
 
@@ -475,7 +475,7 @@ function resolveShowdown(s: HandState): void {
     shown[p.playerId] = [...p.holeCards];
     highs.set(p.playerId, bestHigh(p.holeCards, s.board, v.mustUseTwoHole));
     const lowFn = v.lowRule === "any" ? bestLowAny : bestLow8;
-    lows.set(p.playerId, v.hiLo ? lowFn(p.holeCards, s.board, v.mustUseTwoHole) : null);
+    lows.set(p.playerId, splitOf(v) !== "high" ? lowFn(p.holeCards, s.board, v.mustUseTwoHole) : null);
     s.log.push(`${name(p)} shows ${fmtCards(p.holeCards)}: ${(highs.get(p.playerId) as HighResult).name}`);
   }
 
@@ -500,9 +500,32 @@ function resolveShowdown(s: HandState): void {
       }
       return group;
     };
+    const mode = splitOf(v);
+    if (mode === "low") {
+      let lowGroup = bestOf((p) => lows.get(p.playerId), false);
+      if (v.lowWinner === "second" && lowGroup.length > 0 && lowGroup.length < eligible.length) {
+        // FYST: skip the best group; the next-best group (by exact score) wins.
+        const bestScore = (lows.get(lowGroup[0]!.playerId) as LowResult).score;
+        const rest = eligible.filter((p) => (lows.get(p.playerId) as LowResult).score !== bestScore);
+        let next = Infinity;
+        for (const p of rest) next = Math.min(next, (lows.get(p.playerId) as LowResult).score);
+        lowGroup = rest.filter((p) => (lows.get(p.playerId) as LowResult).score === next);
+      }
+      if (lowGroup.length > 0) {
+        for (const [id, amt] of distribute(pot.amount, lowGroup, order)) {
+          if (amt > 0) winners.push({ playerId: id, amount: amt, potIndex, half: "whole", handName: (lows.get(id) as LowResult).name });
+        }
+      } else {
+        // No qualifying low in this pot: best high hand takes it.
+        for (const [id, amt] of distribute(pot.amount, bestOf((p) => highs.get(p.playerId), true), order)) {
+          if (amt > 0) winners.push({ playerId: id, amount: amt, potIndex, half: "whole", handName: (highs.get(id) as HighResult).name });
+        }
+      }
+      return;
+    }
     const highWinners = bestOf((p) => highs.get(p.playerId), true);
-    const lowWinners = v.hiLo ? bestOf((p) => lows.get(p.playerId), false) : [];
-    const split = v.hiLo && lowWinners.length > 0;
+    const lowWinners = mode === "hilo" ? bestOf((p) => lows.get(p.playerId), false) : [];
+    const split = mode === "hilo" && lowWinners.length > 0;
     const highAmount = split ? Math.ceil(pot.amount / 2) : pot.amount;
     const lowAmount = split ? pot.amount - highAmount : 0;
 
