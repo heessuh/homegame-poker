@@ -8,6 +8,13 @@ A quick guide for friends at the table. You don’t need an account or an app: j
 2. Type the name you want to show at the table (1 to 20 characters). Names must be unique, so if someone already uses yours, you’ll be shown as “Name2” or similar.
 3. You’ll see the table right away. Refresh or close the tab and reopen the link any time: your seat and chips are kept, as long as the host hasn’t restarted the server.
 
+## Pick an avatar
+
+Next to your name you can show an avatar: an emoji (animals, card suits, or objects) or a number from 1 to 99.
+
+- Pick one on the join screen, or
+- Click your own seat or name at any time to change it.
+
 ## Sit down and buy in
 
 1. Click **Sit here** on an empty seat.
@@ -18,7 +25,7 @@ Your chips are the stack shown by your seat. Each hand, the blinds and bets come
 
 Other buttons under your seat:
 
-- **Rebuy** adds chips. Between hands it happens right away; during a hand it waits until the hand ends.
+- **Rebuy** adds chips. Between hands it happens right away; during a hand it waits until the hand ends. Tournaments don’t allow rebuys.
 - **Sit out** pauses you without leaving the seat. When it’s your turn you are automatically checked or folded. Click **Sit in** to return.
 - **Stand up** leaves the seat and cashes out your chips. During a hand, you leave after the hand finishes.
 
@@ -45,6 +52,10 @@ If the host turned on the action timer, a bar counts down on your seat when it�
 
 If you time out twice in a row without acting, you’re put in **sitting out** mode. Click **Sit in** when you’re back.
 
+## Dealer-awarded pots
+
+At some tables the dealer decides who gets the pot. When that happens, you’ll see “Waiting for the dealer to award the pot.” Just wait; the dealer makes the award and the game goes on.
+
 ## Games
 
 - **No-Limit Texas Hold’em**, up to 10 players.
@@ -55,11 +66,20 @@ If you time out twice in a row without acting, you’re put in **sitting out** m
 
 The host picks the game and the stakes.
 
-## The Log, Ledger, and Last hand tabs
+## Tournaments
+
+If the host runs a tournament instead of a cash game:
+
+- You start with the tournament’s starting stack. You don’t pick a buy-in, and there are no rebuys.
+- The level clock shows the current blinds, a countdown, and the next level. Blinds go up at the next hand after the clock runs out.
+- When you lose all your chips, you’re out and you get a finishing place.
+
+## The Log, Ledger, Last hand, and Standings tabs
 
 - **Log** shows what has happened at the table in order, newest at the bottom, including each hand’s actions and results.
 - **Ledger** lists everyone’s buy-ins, cash-outs, and current stack, with the net result for each player. Use it to settle up at the end of the night.
 - **Last hand** shows the most recent completed hand: the board, the results, and the **Verify shuffle** tool.
+- **Standings** shows the tournament standings: who is still in and who has finished where.
 
 ## Verify shuffle
 
