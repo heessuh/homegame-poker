@@ -16,10 +16,54 @@ permissions:
   contents: read
 
 jobs:
+  # dieharder is split into parallel jobs because one `dieharder -a` is a single sequential process that needs
+  # about 8 hours on a 2-vCPU runner at the exporter's ~9 MB/s (run 41866825867 was cancelled at 180 min, at
+  # rgb_lagged_sum lag 18 of 0..32). The matrix below runs exactly what `dieharder -a` runs, one `dieharder -d`
+  # per entry, each with the same default tsamples/psamples that -a uses (no -t/-p given).
+  #
+  # What -a runs (dieharder 3.31.1 source, dieharder/run_all_tests.c, run_all_tests(); ids from `dieharder -l`):
+  #   - every diehard test, ids 0-17, once each (no ntuple loop);
+  #   - every sts test, ids 100-102, once each. sts_serial (102) loops ntuple 1..16 inside the one run
+  #     (libdieharder/sts_serial.c, "nb = 16"), so it needs no -n;
+  #   - the "other" tests from id 200, with ntuple set only by these cases (ntuple 0 = the -a default):
+  #       200 rgb_bitdist           ntuple 1..12   (ntmin = 1, ntmax = 12)
+  #       201 rgb_minimum_distance  ntuple 2..5
+  #       202 rgb_permutations      ntuple 2..5
+  #       203 rgb_lagged_sum        ntuple 0..32   (lags 0 to 32)
+  #       204 rgb_kstest_test, 205 dab_bytedistrib, 206 dab_dct, 207 dab_filltree, 208 dab_filltree2,
+  #       209 dab_monobit2 once each (they set their own ntuple internally; run_all_tests.c's "default:" case).
+  #   - psamples/tsamples stay at each test's own default in both -a and -d (set_globals.c: psamples = 0 and
+  #     tsamples = 0 "precipitate use of test defaults"); execute_test() in run_test.c is shared by -a and -d.
+  # Cross-checked against the cancelled run's log: -a printed rgb_bitdist 1-12, rgb_minimum_distance 2-5,
+  # rgb_permutations 2-5, rgb_lagged_sum 0-18 (killed there), with the same tsamples/psamples that -d prints.
+  #
+  # `tests` entries are "<id>" or "<id>:<ntuple>" (-d id, plus -n ntuple). The rgb_lagged_sum cost grows about
+  # linearly with the lag (~0.72 min x (lag + 1) on the old run), so lags are dealt out for roughly equal load,
+  # about 70 minutes each; the other groups take about 30 minutes. Timeout 300 leaves a wide margin.
   dieharder:
-    name: dieharder (-a, stdin raw)
+    name: dieharder (-a split, ${{ matrix.group }})
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: diehard+sts
+            tests: "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 100 101 102"
+          - group: rgb-bitdist+misc
+            tests: "200:1 200:2 200:3 200:4 200:5 200:6 200:7 200:8 200:9 200:10 200:11 200:12 201:2 201:3 201:4 201:5 202:2 202:3 202:4 202:5 204 205 206 207 208 209"
+          - group: lagged-sum-a
+            tests: "203:0 203:5 203:12 203:17 203:24 203:29"
+          - group: lagged-sum-b
+            tests: "203:1 203:4 203:13 203:16 203:25 203:28"
+          - group: lagged-sum-c
+            tests: "203:2 203:3 203:14 203:15 203:26 203:27"
+          - group: lagged-sum-d
+            tests: "203:6 203:11 203:18 203:23 203:30"
+          - group: lagged-sum-e
+            tests: "203:7 203:10 203:19 203:22 203:31"
+          - group: lagged-sum-f
+            tests: "203:8 203:9 203:20 203:21 203:32"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,30 +75,67 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dieharder
           dieharder -V || true
-      - name: Run dieharder -a on the production stream
+      - name: Run dieharder tests on the production stream
         shell: bash
         run: |
           set -o pipefail
           mkdir -p rng-logs
-          # -g 200 = stdin_input_raw: raw bytes from stdin. The exporter verifies the stream against the
-          # engine's deriveDeck at startup and then runs until dieharder closes the pipe.
-          node scripts/rng-export.mjs 2> rng-logs/export-stderr.txt | dieharder -a -g 200 | tee rng-logs/dieharder.txt
-      - name: Summarize and gate
+          log=rng-logs/dieharder-${{ matrix.group }}.txt
+          : > "$log"
+          # -g 200 = stdin_input_raw: raw bytes from stdin. Each invocation gets its own fresh exporter, which
+          # verifies the stream against the engine's deriveDeck at startup and then runs until dieharder
+          # closes the pipe. Fresh random seeds per hand, so separate exporters are independent streams.
+          for spec in ${{ matrix.tests }}; do
+            id=${spec%%:*}
+            args=(-d "$id")
+            if [ "$spec" != "$id" ]; then args+=(-n "${spec#*:}"); fi
+            echo "=== dieharder ${args[*]} -g 200 ($(date -u +%H:%M:%S))" | tee -a rng-logs/progress-${{ matrix.group }}.txt
+            before=$(grep -cE ' (PASSED|WEAK|FAILED) *$' "$log" || true)
+            node scripts/rng-export.mjs 2>> rng-logs/export-stderr-${{ matrix.group }}.txt | dieharder "${args[@]}" -g 200 | tee -a "$log"
+            after=$(grep -cE ' (PASSED|WEAK|FAILED) *$' "$log" || true)
+            if [ "$after" -le "$before" ]; then echo "dieharder ${args[*]} produced no results"; exit 1; fi
+          done
+          echo "=== done ($(date -u +%H:%M:%S))" | tee -a rng-logs/progress-${{ matrix.group }}.txt
+      - uses: actions/upload-artifact@v4
         if: always()
+        with:
+          name: dieharder-logs-${{ matrix.group }}
+          path: rng-logs/
+          if-no-files-found: ignore
+
+  dieharder-gate:
+    name: dieharder (-a, combined gate)
+    needs: dieharder
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dieharder-logs-*
+          path: rng-in
+          merge-multiple: true
+      - name: Summarize and gate
         shell: bash
         run: |
+          mkdir -p rng-logs
+          # Same gate as the former single job, applied to the concatenation of every matrix log.
           f=rng-logs/dieharder.txt
+          cat rng-in/dieharder-*.txt > "$f" 2>/dev/null || : > "$f"
+          cp rng-in/progress-*.txt rng-in/export-stderr-*.txt rng-logs/ 2>/dev/null || true
           passed=$(grep -c ' PASSED *$' "$f" || true)
           weak=$(grep -c ' WEAK *$' "$f" || true)
           failed=$(grep -c ' FAILED *$' "$f" || true)
           # dieharder's own manual flags diehard_sums as unreliable; it is reported but does not gate.
           gating=$(grep ' FAILED *$' "$f" | grep -vc '^ *diehard_sums' || true)
+          jobs_result="${{ needs.dieharder.result }}"
+          logs=$(ls rng-in/dieharder-*.txt 2>/dev/null | wc -l)
           {
-            echo "## dieharder -a (stdin raw)"
+            echo "## dieharder -a (stdin raw, split into 8 parallel jobs)"
             echo ""
-            echo "| PASSED | WEAK | FAILED | FAILED (gating) |"
-            echo "|---:|---:|---:|---:|"
-            echo "| $passed | $weak | $failed | $gating |"
+            echo "| PASSED | WEAK | FAILED | FAILED (gating) | matrix jobs | logs found |"
+            echo "|---:|---:|---:|---:|---:|---:|"
+            echo "| $passed | $weak | $failed | $gating | $jobs_result | $logs of 8 |"
             echo ""
             echo "WEAK results are expected by chance now and then in a run of about 114 tests; they do not fail the job."
             echo ""
@@ -66,6 +147,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           if [ $((passed + weak + failed)) -eq 0 ]; then echo "dieharder produced no results"; exit 1; fi
           if [ "$gating" != "0" ]; then echo "dieharder reported FAILED tests"; exit 1; fi
+          if [ "$jobs_result" != "success" ] || [ "$logs" != "8" ]; then echo "not every dieharder matrix job completed (result=$jobs_result, logs=$logs of 8)"; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
