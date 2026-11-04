@@ -389,7 +389,7 @@ async function scenHouseBoard(g, ctx, variant, n, label) {
   const T = await makeTable(g, ctx, variant, n);
   const H = T.host;
   const pot = VARIANTS[variant].betting === "pot-limit";
-  const expMaxPre = pot ? 70 : 220; // pot-limit stays as an extra cap on top of the house limit
+  const expMaxPre = 220; // house rule: in cash games the house limit replaces pot-limit sizing
   H.s.emit("host:start");
   if (!(await T.actor())) throw new Error("hand never started");
   const phase = () => H.v.hand.phase;
@@ -411,11 +411,11 @@ async function scenHouseBoard(g, ctx, variant, n, label) {
   g.ok(!!err && MONEY_RE.test(err), `${label}: raise above maximum should be rejected with a dollar-formatted error, got ${JSON.stringify(err)}`);
   err = await T.act(a, { type: "raise", amount: 2500 });
   g.ok(!!err && MONEY_RE.test(err), `${label}: huge raise should be rejected with a dollar-formatted error, got ${JSON.stringify(err)}`);
-  let hi = 20, amt = Math.min(l.maxRaiseTo, 120), inc = amt - hi; // raise by 100 (50 in pot-limit games)
+  let hi = 20, amt = Math.min(l.maxRaiseTo, 120), inc = amt - hi; // raise by 100 (house limit applies to Omaha too)
   g.ok(!(await T.act(a, { type: "raise", amount: amt })), `${label}: legal raise to ${amt} was rejected`);
   a = await T.actor(); l = a.v.hand.legal;
   g.ok(l.minRaiseTo === amt + inc + 1, `${label}: after a raise by ${inc} the next min should be ${amt + inc + 1}, got ${l.minRaiseTo}`);
-  if (!pot) rangeIs(l, 221, 320, "after raise by 100");
+  rangeIs(l, 221, 320, "after raise by 100");
   for (let r = 2; r <= 3; r++) {
     const to = l.minRaiseTo, i2 = to - amt;
     g.ok(!(await T.act(a, { type: "raise", amount: to })), `${label}: raise #${r} to ${to} was rejected`);
@@ -461,7 +461,7 @@ async function scenHouseBoard(g, ctx, variant, n, label) {
   }
   g.ok(!!(await until(() => H.v.pendingAward, 5000)), `${label}: hand did not finish`);
   if (H.v.pendingAward) { const pa = H.v.pendingAward; await T.award(); conserve(g, T, 0, label); g.ok(pa.amount > 0, `${label}: empty pot`); }
-  g.note(`${n} players${pot ? ", pot-limit cap (70 first raise) applies on top of the house limit" : ""}`);
+  g.note(`${n} players${pot ? ", house limit replaces the pot limit (first raise up to 220)" : ""}`);
 }
 
 async function scenMurder3(g, ctx) {

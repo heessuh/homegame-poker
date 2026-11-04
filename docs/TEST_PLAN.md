@@ -98,7 +98,7 @@ There must be 15 lines starting with `PASS` and none starting with `FAIL`. Recor
 
 | Scenario | Must pass |
 |---|---|
-| House limit | First raise 41¢–$2.20 preflop; each raise more than the last; a $2 bet can’t be raised; at most 3 raises, heads-up too; out-of-range raises rejected with a dollar amount |
+| House limit | Cash games only, Hold’em and Omaha alike (it replaces the Omaha pot limit): first raise 41¢–$2.20 preflop; each raise more than the last; a $2 bet can’t be raised; at most 3 raises, heads-up too; out-of-range raises rejected with a dollar amount |
 | 5-Murder stakes | 20¢ ante; raises up to $1, or $2 in the last round; face-down swap adds exactly 50¢ and is never refunded; face-up swap free; lowest up cards act first |
 | Dealer flow | Next hand waits for the award; wrong totals rejected; chip moves; sit-out; player rebuy rejected; dealer rebuy re-seats; +15s once per turn |
 | Shuffle proof | Every hand’s revealed deck matches its fingerprint |

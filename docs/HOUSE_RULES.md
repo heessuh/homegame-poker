@@ -18,7 +18,13 @@ These rules apply to every game we play: Hold’em, every Omaha game, FYST and 5
   - Before the flop, the 20¢ big blind counts as the opening bet, so the smallest raise is to 41¢.
 - **All-in:** you can always go all-in for less. An all-in that is smaller than a legal raise doesn’t count as a raise and doesn’t reopen the betting for players who already acted.
 
-The host can turn the house limit off for a table to play standard no-limit or pot-limit.
+### Cash games vs. tournaments
+
+- **Cash (house) games:** the house limit above always applies, and it **replaces** the pot limit in the Omaha games. A raise of up to $2 is allowed even when the pot is smaller than that.
+  - Example: blinds 10¢/20¢, the first player to act in Omaha can raise to anywhere from 41¢ to $2.20, not just to the 70¢ pot size.
+- **Tournaments:** the house limit does **not** apply. Omaha games play regular **pot-limit**, and Hold’em plays regular **no-limit**.
+
+The host can also turn the house limit off for a cash table to play standard no-limit or pot-limit.
 
 ## Hold’em Hi/Lo (no qualifier)
 
@@ -30,7 +36,7 @@ The host can turn the house limit off for a table to play standard no-limit or p
 
 ## Omaha Low games
 
-All are 4-card Pot-Limit Omaha, with the house betting limits above. You must use exactly two of your hole cards and three from the board.
+All are 4-card Omaha. In cash games they use the house limit above (which replaces the pot limit); in tournaments they’re regular pot-limit. You must use exactly two of your hole cards and three from the board.
 
 - **Omaha Low (8 or better):** the best low wins the whole pot. A low must be five different cards 8 or lower (ace low). If nobody has one, the best high hand wins.
 - **Omaha Low (no qualifier):** the lowest hand always wins the whole pot, ranked as in Hold’em Hi/Lo above.

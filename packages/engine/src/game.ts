@@ -324,7 +324,8 @@ function computeLegal(s: HandState, p: HandPlayer): LegalActions {
   let maxRaiseTo: number | null = null;
   if (p.stack > toCall && !p.hasActed && othersCanRespond) {
     if (s.limits) {
-      const pot = VARIANTS[s.variant].betting === "pot-limit" ? s.currentBet + potTotal(s) + toCall : undefined;
+      // House rule: in a cash game the house limit REPLACES pot-limit sizing (a $2 raise is allowed even
+      // when the pot is smaller). Tournaments don't pass limits, so Omaha there stays plain pot-limit.
       const z = houseLimitSizing({
         rules: s.limits,
         currentBet: s.currentBet,
@@ -332,7 +333,6 @@ function computeLegal(s: HandState, p: HandPlayer): LegalActions {
         stack: p.stack,
         prevIncrement: s.lastRaiseSize,
         raises: s.raises ?? 0,
-        potCapRaiseTo: pot,
       });
       return { canFold: true, canCheck: toCall <= 0, callAmount, minRaiseTo: z.minRaiseTo, maxRaiseTo: z.maxRaiseTo };
     }

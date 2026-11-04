@@ -153,15 +153,15 @@ describe("board games with a house limit", () => {
     expect(s.phase).toBe("flop");
   });
 
-  it("pot-limit games take the smaller of the pot-limit and the house maximum", () => {
-    // Pot-limit omaha, blinds 10/20: pot-size raise is 20 + 30 + 20 = 70, the house maximum is 220.
+  it("the house limit replaces pot-limit sizing in Omaha cash games", () => {
+    // Pot-limit omaha, blinds 10/20: a pot-size raise would be 20 + 30 + 20 = 70, but the house rule allows +$2 (to 220).
     const s = hand({ variant: "plo4" });
     expect(legal(s).minRaiseTo).toBe(41);
-    expect(legal(s).maxRaiseTo).toBe(70);
-    // A tight house maximum of 30 wins over the pot-limit cap (20 + 30).
+    expect(legal(s).maxRaiseTo).toBe(220);
+    // A tight house maximum of 30 caps the raise at 20 + 30.
     const t = hand({ variant: "plo4", limits: { ...DEFAULT_HOUSE_LIMIT, maxBet: 30 } });
     expect(legal(t).maxRaiseTo).toBe(50);
-    // With the house limit off, plain pot-limit sizing applies.
+    // With the house limit off (and in tournaments, which pass no limits), plain pot-limit sizing applies.
     const off = hand({ variant: "plo4", limits: { ...DEFAULT_HOUSE_LIMIT, enabled: false } });
     expect(legal(off).minRaiseTo).toBe(40);
     expect(legal(off).maxRaiseTo).toBe(70);

@@ -298,6 +298,32 @@ describe("config: stud, house limit, money", () => {
   });
 });
 
+describe("Omaha: house limit in cash games, pot limit in tournaments", () => {
+  const house = { enabled: true, minBet: 20, maxBet: 200, maxRaises: 3, raiseMustExceed: true };
+  const base = { variant: "plo4" as const, smallBlind: 10, bigBlind: 20, minBuyIn: 500, maxBuyIn: 5000, money: "cents" as const, houseLimit: house };
+
+  it("cash game: the $2 house limit replaces the pot limit (first raise up to 220, not the 70 pot size)", () => {
+    const r = rig(3, base);
+    seatAll(r, undefined, 1000);
+    r.table.hostStart(r.ids[0]!);
+    r.clock.advance(1000);
+    const l = r.table.viewFor(actor(r)!).hand!.legal!;
+    expect(l.minRaiseTo).toBe(41);
+    expect(l.maxRaiseTo).toBe(220);
+  });
+
+  it("tournament: plain pot limit, no $2 cap", () => {
+    const t = rig(3, { ...base, mode: "tournament" });
+    seatAll(t, undefined, 1);
+    t.table.hostStart(t.ids[0]!);
+    t.clock.advance(1000);
+    const v = t.table.viewFor(actor(t)!);
+    const lvl = v.tournament!.level;
+    // Pot-size raise preflop for the first player: BB + (SB + BB) + BB.
+    expect(v.hand!.legal!.maxRaiseTo).toBe(lvl.bigBlind + lvl.smallBlind + lvl.bigBlind + lvl.bigBlind);
+  });
+});
+
 describe("one-step switch to 5-Murder", () => {
   it("shrinks the seat count to 8 when only the variant is sent", () => {
     const r = rig(1, { maxSeats: 9 });

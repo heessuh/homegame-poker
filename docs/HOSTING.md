@@ -69,6 +69,8 @@ While a tournament runs:
 - Players who stand up during a tournament are counted as eliminated.
 - After there’s a winner, switch **Mode** back to **Cash**, or start another tournament.
 
+Betting in tournaments is standard: Omaha is pot-limit and Hold’em is no-limit. The house limit (up to $2 per bet or raise) only applies to cash games, where it replaces the Omaha pot limit.
+
 Tournament chips never count in the cash ledger. Switching a table to tournament mode cashes everyone out in the ledger first. Switching back to cash leaves players with 0 chips and sitting out until you rebuy them. Each rebuy is recorded as a buy-in.
 
 ## If the host goes offline
