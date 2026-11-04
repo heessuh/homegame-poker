@@ -51,15 +51,15 @@ describe("socket server", () => {
     await until(() => !!a.view && !!b.view);
     expect(a.view!.you.isHost).toBe(true);
     expect(b.view!.you.isHost).toBe(false);
-    a.emit("sit", { seat: 0, buyIn: 100 });
-    b.emit("sit", { seat: 1, buyIn: 100 });
+    a.emit("sit", { seat: 0, buyIn: 1000 });
+    b.emit("sit", { seat: 1, buyIn: 1000 });
     await until(() => a.view!.seats.filter(Boolean).length === 2);
     b.emit("host:start");
     await until(() => b.errors.length > 0);
     a.emit("host:start");
     await until(() => a.view!.hand?.winners != null && b.view!.hand?.winners != null, 20_000);
     expect(a.view!.lastHand).not.toBeNull();
-    expect(a.view!.seats.reduce((n, s) => n + (s?.stack ?? 0), 0)).toBe(200);
+    expect(a.view!.seats.reduce((n, s) => n + (s?.stack ?? 0), 0)).toBe(2000);
     expect(a.view!.you.seat).toBe(0);
     expect(b.view!.you.seat).toBe(1);
     a.close();

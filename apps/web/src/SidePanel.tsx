@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { VARIANTS } from "@homegame/engine";
-import type { SeatView, TableConfig, TableView, VariantId } from "@homegame/engine";
+import { DEFAULT_HOUSE_LIMIT, DEFAULT_STUD, VARIANTS } from "@homegame/engine";
+import type { HouseLimit, SeatView, StudStakes, TableConfig, TableView, VariantId } from "@homegame/engine";
 import { CardRow } from "./CardView";
 import type { Send } from "./App";
-import { fmt, sha256Hex } from "./util";
-import { Who, avatarOf } from "./ui";
+import { fmt, fmtWith, isStud, sha256Hex } from "./util";
+import { MoneyInput, Who, avatarOf } from "./ui";
 import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
 export type Tab = "log" | "ledger" | "last" | "standings" | "host";
@@ -116,12 +116,26 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
   useEffect(() => setDraft(source), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const num = (k: keyof TableConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setDraft({ ...draft, [k]: Number(e.target.value) });
+  const stud = isStud(draft);
+  const studCfg: StudStakes = draft.stud ?? DEFAULT_STUD;
+  const dol = draft.money === "cents" && draft.mode !== "tournament";
+  const setStudN = (k: keyof StudStakes) => (n: number) => setDraft({ ...draft, stud: { ...studCfg, [k]: n } });
+  const setStudInt = (k: keyof StudStakes) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setDraft({ ...draft, stud: { ...studCfg, [k]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } });
+  const hl: HouseLimit = draft.houseLimit ?? DEFAULT_HOUSE_LIMIT;
+  const setHl = (patch: Partial<HouseLimit>) => setDraft({ ...draft, houseLimit: { ...hl, ...patch } });
+  const money = (k: "smallBlind" | "bigBlind" | "minBuyIn" | "maxBuyIn") => (n: number) => setDraft({ ...draft, [k]: n });
+  const problems: string[] = [];
+  if (!stud && draft.smallBlind > draft.bigBlind) problems.push("Small blind can’t be bigger than the big blind.");
+  if (draft.minBuyIn > draft.maxBuyIn) problems.push("Min buy-in can’t be bigger than the max buy-in.");
+  if (stud && (studCfg.minBet < 1 || studCfg.minBet > studCfg.maxBet || studCfg.maxBet > studCfg.maxBetLastRound)) problems.push("Bets need min ≤ max ≤ last-round max, and min at least one cent.");
+  if (!stud && hl.enabled && (hl.minBet < 1 || hl.minBet > hl.maxBet)) problems.push("House limit: min bet must be at least one cent and no more than the max.");
   const maxPlayers = VARIANTS[draft.variant].maxPlayers;
   const players = view.seats.filter((s): s is SeatView => s !== null);
-  const [delta, setDelta] = useState(100);
+  const [delta, setDelta] = useState(1000);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [moveAmt, setMoveAmt] = useState(10);
+  const [moveAmt, setMoveAmt] = useState(1000);
   const apply = () => {
     const cfg = { ...cashPart(draft), maxSeats: Math.max(2, Math.min(maxPlayers, draft.maxSeats)) };
     send("host:config", cfg);
@@ -148,12 +162,51 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
             {Object.values(VARIANTS).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
         </label>
-        <label>Small blind<input type="number" min={1} value={draft.smallBlind} onChange={num("smallBlind")} /></label>
-        <label>Big blind<input type="number" min={1} value={draft.bigBlind} onChange={num("bigBlind")} /></label>
+        <label className="full">Money display
+          <select value={draft.money} onChange={(e) => setDraft({ ...draft, money: e.target.value as TableConfig["money"] })}>
+            <option value="cents">Dollars &amp; cents (1 chip = 1¢)</option>
+            <option value="chips">Plain chips</option>
+          </select>
+        </label>
+        {!stud && <label>Small blind<MoneyInput dollars={dol} value={draft.smallBlind} min={1} onChange={money("smallBlind")} label="Small blind" /></label>}
+        {!stud && <label>Big blind<MoneyInput dollars={dol} value={draft.bigBlind} min={1} onChange={money("bigBlind")} label="Big blind" /></label>}
         <label>Max seats (2–{maxPlayers})<input type="number" min={2} max={maxPlayers} value={draft.maxSeats} onChange={num("maxSeats")} /></label>
         <label>Action timer (sec, 0 = off)<input type="number" min={0} value={draft.actionTimeoutSec} onChange={num("actionTimeoutSec")} /></label>
-        <label>Min buy-in<input type="number" min={1} value={draft.minBuyIn} onChange={num("minBuyIn")} /></label>
-        <label>Max buy-in<input type="number" min={1} value={draft.maxBuyIn} onChange={num("maxBuyIn")} /></label>
+        <label>Min buy-in<MoneyInput dollars={dol} value={draft.minBuyIn} min={1} onChange={money("minBuyIn")} label="Min buy-in" /></label>
+        <label>Max buy-in<MoneyInput dollars={dol} value={draft.maxBuyIn} min={1} onChange={money("maxBuyIn")} label="Max buy-in" /></label>
+        {!stud && (
+          <div className="houseblock">
+            <h5>House limit</h5>
+            <label className="check full"><input type="checkbox" checked={hl.enabled} onChange={(e) => setHl({ enabled: e.target.checked })} />House limit on</label>
+            {hl.enabled && (
+              <>
+                <label>Min bet<MoneyInput dollars={dol} value={hl.minBet} min={1} onChange={(n) => setHl({ minBet: n })} label="House limit min bet" /></label>
+                <label>Max bet per bet/raise<MoneyInput dollars={dol} value={hl.maxBet} min={1} onChange={(n) => setHl({ maxBet: n })} label="House limit max bet" /></label>
+                <label>Max raises per round<input type="number" min={0} value={hl.maxRaises} onChange={(e) => setHl({ maxRaises: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} /></label>
+                <label className="check"><input type="checkbox" checked={hl.raiseMustExceed} onChange={(e) => setHl({ raiseMustExceed: e.target.checked })} />Each raise must be bigger than the last</label>
+                <p className="muted small">Each bet or raise can be up to {fmtWith(hl.maxBet, dol, true)}; at most {hl.maxRaises} raises per round{hl.raiseMustExceed ? "; each raise must be more than the previous bet or raise" : ""}.</p>
+              </>
+            )}
+          </div>
+        )}
+        {stud && (
+          <div className="studbox">
+            <h5>5-Murder stakes</h5>
+            <label>Ante<MoneyInput dollars={dol} value={studCfg.ante} onChange={setStudN("ante")} label="Ante" /></label>
+            <label>Min bet<MoneyInput dollars={dol} value={studCfg.minBet} min={1} onChange={setStudN("minBet")} label="Min bet" /></label>
+            <label>Max bet (rounds 1–5, exchange 1)<MoneyInput dollars={dol} value={studCfg.maxBet} min={1} onChange={setStudN("maxBet")} label="Max bet" /></label>
+            <label>Max bet, last round<MoneyInput dollars={dol} value={studCfg.maxBetLastRound} min={1} onChange={setStudN("maxBetLastRound")} label="Max bet in the last round" /></label>
+            <label>Face-down exchange cost<MoneyInput dollars={dol} value={studCfg.downExchangeCost} onChange={setStudN("downExchangeCost")} label="Face-down exchange cost" /></label>
+            <label>Max raises per round<input type="number" min={0} value={studCfg.maxRaises} onChange={setStudInt("maxRaises")} /></label>
+            <label className="check full"><input type="checkbox" checked={studCfg.raiseMustExceed} onChange={(e) => setDraft({ ...draft, stud: { ...studCfg, raiseMustExceed: e.target.checked } })} />Each raise must be bigger than the last</label>
+            <label>Showdown
+              <select value={studCfg.declare ? "declare" : "speak"} onChange={(e) => setDraft({ ...draft, stud: { ...studCfg, declare: e.target.value === "declare" } })}>
+                <option value="declare">Declare (High/Low/Both)</option>
+                <option value="speak">Cards speak</option>
+              </select>
+            </label>
+          </div>
+        )}
         <label className="full">Pot awarding
           <select value={draft.awardMode} onChange={(e) => setDraft({ ...draft, awardMode: e.target.value as TableConfig["awardMode"] })}>
             <option value="auto">Automatic</option>
@@ -161,7 +214,8 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
           </select>
         </label>
       </div>
-      <button className="btn small" disabled={JSON.stringify(cashPart(draft)) === JSON.stringify(cashPart(source))} onClick={apply}>Apply settings</button>
+      {problems.map((p) => <p key={p} className="note">{p}</p>)}
+      <button className="btn small" disabled={problems.length > 0 || JSON.stringify(cashPart(draft)) === JSON.stringify(cashPart(source))} onClick={apply}>Apply settings</button>
       <p className="muted small">Applies next hand if one is in progress.</p>
 
       <h4>Mode</h4>
@@ -197,7 +251,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
             {players.map((p) => <option key={p.playerId} value={p.playerId}>{p.name} ({fmt(p.stack)})</option>)}
           </select>
         </label>
-        <label>Amount<input type="number" min={1} value={moveAmt} onChange={(e) => setMoveAmt(Math.floor(Number(e.target.value)))} /></label>
+        <label>Amount<MoneyInput value={moveAmt} min={1} onChange={setMoveAmt} label="Amount to move" /></label>
         <label className="end"><button className="btn small" disabled={!canMove}
           onClick={() => send("host:transfer", { fromPlayerId: fromId, toPlayerId: toId, amount: moveAmt })}>Move chips</button></label>
       </div>
@@ -205,7 +259,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
       <h4>Players</h4>
       <div className="adjust">
         <span>Stack adjust amount</span>
-        <input type="number" min={1} value={delta} onChange={(e) => setDelta(Math.max(1, Number(e.target.value)))} />
+        <MoneyInput value={delta} min={1} onChange={setDelta} label="Stack adjust amount" />
       </div>
       {players.length === 0 && <p className="muted">Nobody is seated.</p>}
       {players.map((s) => (

@@ -266,3 +266,64 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .psub { flex-basis: 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .psub label { display: flex; align-items: center; gap: 4px; }
 .psub select { padding: 3px 6px; font-size: 12px; }
+
+/* stud (5-Murder) */
+.studcards { display: flex; align-items: flex-start; justify-content: center; gap: 2px; margin-bottom: 8px; max-width: none; }
+.studcards .grp { position: relative; }
+.studcards .cardrow.hole > .card + .card { margin-left: -15px; }
+.studcards .cardrow.up > .card + .card { margin-left: -10px; }
+.studcards .cardrow.up > .card { align-items: flex-start; padding-left: 1px; }
+.studcards .cardrow.hole > .card.sm .r { font-size: 10px; }
+.studcards .cardrow.hole > .card.sm .s { font-size: 10px; }
+.studcards .card.up { box-shadow: 0 1px 3px #0009, 0 0 0 1px #f5b94277; }
+.seat.me .studcards { gap: 10px; margin-bottom: 14px; }
+.seat.me .studcards .cardrow.hole > .card + .card { margin-left: -26px; }
+.seat.me .studcards .cardrow.hole > .card.lg .r { font-size: 17px; }
+.seat.me .studcards .cardrow.hole > .card.lg .s { font-size: 15px; }
+.card.mark-down { outline: 2px dashed #7aa7ff; outline-offset: -2px; background: #eef3ff; }
+.card.mark-up { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cap { position: absolute; left: 0; right: 0; top: 100%; margin-top: 1px; text-align: center; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #b6d3c2; line-height: 1; pointer-events: none; }
+.studstatus { font-size: 13px; font-weight: 700; color: var(--accent); }
+.tag.decl { background: #1d3a2b; color: #6ee7a0; font-weight: 700; }
+.tag.decl.ok { background: #12331f; font-size: 11px; }
+@media (min-width: 700px) {
+  .studcards .cardrow.hole > .card + .card { margin-left: -20px; }
+  .studcards .cardrow.up > .card + .card { margin-left: -14px; }
+  .studcards .cardrow.hole > .card.sm .r { font-size: 13px; }
+  .seat.me .studcards .cardrow.hole > .card + .card { margin-left: -32px; }
+  .seat.me .studcards .cardrow.hole > .card.lg .r { font-size: 21px; }
+}
+
+/* exchange / declare panels */
+.stud-panel h4 { margin: 0; font-size: 15px; text-align: center; }
+.tiles { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.tilegrp { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tilegrp .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.tilegrp .row { display: flex; gap: 6px; }
+.tile { background: none; border: 0; padding: 4px; border-radius: 10px; cursor: pointer; }
+.tile .card { --cw: 44px; }
+.tile.on { background: #f5b94233; box-shadow: 0 0 0 2px var(--accent); }
+.tile.down .card { outline: 2px dashed #7aa7ff; outline-offset: -2px; background: #eef3ff; }
+.offer { text-align: center; font-size: 14px; min-height: 20px; }
+.offer .note { color: #ffb4b8; font-size: 12px; display: block; }
+.declare-btns .btn { min-height: 56px; font-size: 18px; }
+.reminder { text-align: center; font-size: 12px; color: var(--muted); margin: 0; }
+.studbox { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.studbox h5 { grid-column: 1 / -1; margin: 0; font-size: 13px; }
+.studbox .full { grid-column: 1 / -1; }
+.seat.me { z-index: 4; }
+@media (max-width: 699px) { .seat-note.win { max-width: 140px; } }
+
+/* money */
+.hint { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
+.moneyin { position: relative; display: inline-flex; flex-direction: column; min-width: 0; max-width: 100%; }
+.moneyin input { width: 100%; box-sizing: border-box; }
+.moneyin .unit { display: none; }
+.moneyin .note { margin: 2px 0 0; }
+.amt.wide { box-sizing: border-box; }
+.slider-row .moneyin { flex: 0 0 auto; }
+.houseblock { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.houseblock h5 { grid-column: 1 / -1; margin: 0; font-size: 13px; }
+.houseblock .full, .houseblock p { grid-column: 1 / -1; }
+.form label.check { flex-direction: row; align-items: center; gap: 8px; }
+.form label.check input { width: auto; }

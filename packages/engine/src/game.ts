@@ -1,8 +1,10 @@
 // Poker hand state machine. Pure functions over a JSON-serializable HandState.
 import type { Card } from "./cards.js";
 import { VARIANTS, splitOf, type VariantId } from "./variants.js";
-import type { LegalActions, Phase, PlayerAction, PotView, WinnerView } from "./protocol.js";
+import type { Declaration, HouseLimit, LegalActions, Phase, PlayerAction, PotView, StudStakes, WinnerView } from "./protocol.js";
 import { bestHigh, bestLow8, bestLowAny, type HighResult, type LowResult } from "./evaluate.js";
+import { houseLimitSizing, requiredIncrement, validateSpreadRules } from "./limits.js";
+import { applyStudAction, startStudHand, studLegal, studTimeoutAction } from "./stud.js";
 
 export interface HandSeatInput {
   seat: number;
@@ -19,6 +21,10 @@ export interface StartHandInput {
   bigBlind: number;
   /** Already shuffled, 52 cards. */
   deck: Card[];
+  /** Stud games only (5-Murder): ante, bet sizes, exchange cost. Defaults to DEFAULT_STUD. */
+  stakes?: StudStakes;
+  /** Board games only: house spread limit. When enabled it replaces no-limit/pot-limit sizing (pot-limit stays as an extra cap). */
+  limits?: HouseLimit;
 }
 
 export interface HandPlayer {
@@ -34,6 +40,10 @@ export interface HandPlayer {
   lastAction: string | null;
   /** Has acted since the last full raise (internal bookkeeping). */
   hasActed: boolean;
+  /** Stud: face-up cards in dealt order (a swapped card takes the old card's position). holeCards = face-down cards. */
+  upCards?: Card[];
+  /** Stud: the secret declaration (keep hidden from clients until HandState.declarationsRevealed). */
+  declared?: Declaration | null;
 }
 
 export interface HandOutcome {
@@ -45,6 +55,8 @@ export interface HandOutcome {
 }
 
 export interface HandState {
+  /** Stud swap fees: in the main pot, but not anyone's bet. */
+  deadMoney?: number;
   handNumber: number;
   variant: VariantId;
   phase: Phase;
@@ -67,30 +79,48 @@ export interface HandState {
   pots: PotView[] | null;
   outcome: HandOutcome | null;
   log: string[];
+  // ----- stud only (all optional so board-game states are unchanged) -----
+  stakes?: StudStakes;
+  /** Board games: the house limit in force for this hand (only present when enabled). */
+  limits?: HouseLimit;
+  /** What the player to act is doing. */
+  stage?: "bet" | "exchange" | "declare" | null;
+  /** Raises made this street after the opening bet (spread-limit play: house limit boards and 5-Murder). */
+  raises?: number;
+  /** Player ids still to act in the current exchange/declare stage, in order. */
+  queue?: string[];
+  /** Discarded and folded cards (server-secret), reshuffled when the deck runs out. */
+  discards?: Card[];
+  /** True once every live player has declared (declarations may then be shown). */
+  declarationsRevealed?: boolean;
 }
 
 // ---------- helpers ----------
 
-function clone(s: HandState): HandState {
+function isStud(s: HandState): boolean {
+  return VARIANTS[s.variant].kind === "stud";
+}
+
+export function clone(s: HandState): HandState {
   return JSON.parse(JSON.stringify(s)) as HandState;
 }
 
-function playerAt(s: HandState, idx: number): HandPlayer {
+export function playerAt(s: HandState, idx: number): HandPlayer {
   const p = s.players[idx];
   if (!p) throw new Error("internal: bad player index");
   return p;
 }
 
-function findPlayer(s: HandState, playerId: string): HandPlayer | undefined {
+export function findPlayer(s: HandState, playerId: string): HandPlayer | undefined {
   return s.players.find((p) => p.playerId === playerId);
 }
 
-function btnIndex(s: HandState): number {
+export function btnIndex(s: HandState): number {
   return s.players.findIndex((p) => p.seat === s.buttonSeat);
 }
 
 /** Players ordered clockwise starting left of the button. */
-function orderFromButton(s: HandState): HandPlayer[] {
+export function orderFromButton(s: HandState): HandPlayer[] {
   const n = s.players.length;
   const b = btnIndex(s);
   const out: HandPlayer[] = [];
@@ -98,15 +128,15 @@ function orderFromButton(s: HandState): HandPlayer[] {
   return out;
 }
 
-function fmtCards(cs: Card[]): string {
+export function fmtCards(cs: Card[]): string {
   return cs.join(" ");
 }
 
-function name(p: HandPlayer): string {
+export function name(p: HandPlayer): string {
   return `${p.playerId} (seat ${p.seat})`;
 }
 
-function post(p: HandPlayer, amount: number): number {
+export function post(p: HandPlayer, amount: number): number {
   const a = Math.min(amount, p.stack);
   p.stack -= a;
   p.bet += a;
@@ -131,6 +161,7 @@ export function startHand(input: StartHandInput): HandState {
     if (!Number.isInteger(x.stack) || x.stack <= 0) throw new Error(`invalid stack for ${x.playerId}`);
   }
   if (input.deck.length < 52) throw new Error("deck must have 52 cards");
+  if (v.kind === "stud") return startStudHand(input);
   if (!Number.isInteger(input.bigBlind) || input.bigBlind <= 0) throw new Error("invalid big blind");
   if (!Number.isInteger(input.smallBlind) || input.smallBlind < 0) throw new Error("invalid small blind");
 
@@ -168,6 +199,11 @@ export function startHand(input: StartHandInput): HandState {
     outcome: null,
     log: [],
   };
+  if (input.limits?.enabled) {
+    validateSpreadRules(input.limits, "house limit");
+    s.limits = { ...input.limits };
+    s.raises = 0;
+  }
 
   const n = players.length;
   const b = btnIndex(s);
@@ -197,11 +233,11 @@ export function startHand(input: StartHandInput): HandState {
 
 // ---------- flow ----------
 
-function activeCount(s: HandState): number {
+export function activeCount(s: HandState): number {
   return s.players.filter((p) => !p.folded && !p.allIn).length;
 }
 
-function findNeedsAction(s: HandState, lastIdx: number): number {
+export function findNeedsAction(s: HandState, lastIdx: number): number {
   const n = s.players.length;
   const act = activeCount(s);
   for (let k = 1; k <= n; k++) {
@@ -257,7 +293,8 @@ function proceed(s: HandState, lastIdx: number): void {
       if (!p.folded && !p.allIn) p.lastAction = null;
     }
     s.currentBet = 0;
-    s.lastRaiseSize = s.bigBlind;
+    s.lastRaiseSize = s.limits ? 0 : s.bigBlind;
+    s.raises = 0;
     dealNextStreet(s);
     from = btnIndex(s);
   }
@@ -265,8 +302,17 @@ function proceed(s: HandState, lastIdx: number): void {
 
 // ---------- legal actions ----------
 
-function potTotal(s: HandState): number {
-  return s.players.reduce((t, p) => t + p.totalCommitted, 0);
+export function potTotal(s: HandState): number {
+  return s.players.reduce((t, p) => t + p.totalCommitted, 0) + (s.deadMoney ?? 0);
+}
+
+/** Add dead money (stud swap fees) to the main pot; everyone still in the hand is eligible for it. */
+export function withDeadMoney(pots: PotView[], s: HandState): PotView[] {
+  const dead = s.deadMoney ?? 0;
+  if (dead <= 0) return pots;
+  if (pots[0]) pots[0].amount += dead;
+  else pots.push({ amount: dead, eligiblePlayerIds: s.players.filter((p) => !p.folded).map((p) => p.playerId) });
+  return pots;
 }
 
 function computeLegal(s: HandState, p: HandPlayer): LegalActions {
@@ -277,6 +323,19 @@ function computeLegal(s: HandState, p: HandPlayer): LegalActions {
   let minRaiseTo: number | null = null;
   let maxRaiseTo: number | null = null;
   if (p.stack > toCall && !p.hasActed && othersCanRespond) {
+    if (s.limits) {
+      const pot = VARIANTS[s.variant].betting === "pot-limit" ? s.currentBet + potTotal(s) + toCall : undefined;
+      const z = houseLimitSizing({
+        rules: s.limits,
+        currentBet: s.currentBet,
+        playerBet: p.bet,
+        stack: p.stack,
+        prevIncrement: s.lastRaiseSize,
+        raises: s.raises ?? 0,
+        potCapRaiseTo: pot,
+      });
+      return { canFold: true, canCheck: toCall <= 0, callAmount, minRaiseTo: z.minRaiseTo, maxRaiseTo: z.maxRaiseTo };
+    }
     minRaiseTo = Math.min(allInTo, s.currentBet + Math.max(s.lastRaiseSize, s.bigBlind));
     if (VARIANTS[s.variant].betting === "pot-limit") {
       maxRaiseTo = Math.min(allInTo, s.currentBet + potTotal(s) + toCall);
@@ -292,6 +351,7 @@ export function legalActions(state: HandState, playerId: string): LegalActions |
   if (state.outcome || state.toActSeat === null) return null;
   const p = findPlayer(state, playerId);
   if (!p || p.seat !== state.toActSeat) return null;
+  if (isStud(state)) return studLegal(state, p);
   return computeLegal(state, p);
 }
 
@@ -299,6 +359,7 @@ export function legalActions(state: HandState, playerId: string): LegalActions |
 
 export function applyAction(state: HandState, playerId: string, action: PlayerAction): HandState {
   if (state.outcome || state.toActSeat === null) throw new Error("the hand is over; no actions are allowed");
+  if (isStud(state)) return applyStudAction(state, playerId, action);
   const s = clone(state);
   const p = findPlayer(s, playerId);
   if (!p) throw new Error(`unknown player ${playerId}`);
@@ -345,10 +406,12 @@ export function applyAction(state: HandState, playerId: string, action: PlayerAc
       const wasBet = s.currentBet === 0;
       const increment = amount - s.currentBet;
       post(p, amount - p.bet);
-      const full = increment >= Math.max(s.lastRaiseSize, s.bigBlind);
+      const full = s.limits ? increment >= requiredIncrement(s.limits, s.lastRaiseSize) : increment >= Math.max(s.lastRaiseSize, s.bigBlind);
+      const opening = s.lastRaiseSize <= 0;
       s.currentBet = amount;
       p.hasActed = true;
       if (full) {
+        if (s.limits && !opening) s.raises = (s.raises ?? 0) + 1;
         s.lastRaiseSize = increment;
         for (const o of s.players) if (o !== p && !o.folded && !o.allIn) o.hasActed = false;
       }
@@ -368,12 +431,13 @@ export function timeoutAction(state: HandState): HandState {
   if (state.outcome || state.toActSeat === null) throw new Error("no player to act");
   const p = state.players.find((x) => x.seat === state.toActSeat);
   if (!p) throw new Error("internal: acting player missing");
+  if (isStud(state)) return studTimeoutAction(state, p.playerId);
   return applyAction(state, p.playerId, state.currentBet - p.bet <= 0 ? { type: "check" } : { type: "fold" });
 }
 
 // ---------- pots ----------
 
-function buildPots(players: HandPlayer[]): PotView[] {
+export function buildPots(players: HandPlayer[]): PotView[] {
   const live = players.filter((p) => !p.folded && p.totalCommitted > 0);
   const levels = [...new Set(live.map((p) => p.totalCommitted))].sort((a, b) => a - b);
   const pots: PotView[] = [];
@@ -403,11 +467,11 @@ function buildPots(players: HandPlayer[]): PotView[] {
 export function potsView(state: HandState): PotView[] {
   if (state.pots) return state.pots.map((p) => ({ amount: p.amount, eligiblePlayerIds: [...p.eligiblePlayerIds] }));
   // Only chips from completed streets; current-street bets stay in players[].bet.
-  return buildPots(state.players.map((p) => ({ ...p, totalCommitted: p.totalCommitted - p.bet })));
+  return withDeadMoney(buildPots(state.players.map((p) => ({ ...p, totalCommitted: p.totalCommitted - p.bet }))), state);
 }
 
 /** Return the portion of the largest commitment nobody matched. */
-function returnUncalled(s: HandState): void {
+export function returnUncalled(s: HandState): void {
   const sorted = [...s.players].sort((a, b) => b.totalCommitted - a.totalCommitted);
   const top = sorted[0];
   const second = sorted[1];
@@ -420,7 +484,7 @@ function returnUncalled(s: HandState): void {
   }
 }
 
-function distribute(amount: number, winners: HandPlayer[], order: HandPlayer[]): Map<string, number> {
+export function distribute(amount: number, winners: HandPlayer[], order: HandPlayer[]): Map<string, number> {
   const ordered = order.filter((o) => winners.includes(o));
   const base = Math.floor(amount / ordered.length);
   let rem = amount - base * ordered.length;
@@ -436,7 +500,7 @@ function distribute(amount: number, winners: HandPlayer[], order: HandPlayer[]):
   return out;
 }
 
-function complete(s: HandState, winners: WinnerView[], shown: Record<string, Card[]>): void {
+export function complete(s: HandState, winners: WinnerView[], shown: Record<string, Card[]>): void {
   for (const w of winners) {
     const p = findPlayer(s, w.playerId);
     if (p) p.stack += w.amount;
@@ -454,7 +518,7 @@ function complete(s: HandState, winners: WinnerView[], shown: Record<string, Car
   s.outcome = { winners, finalStacks, shown, summary: [...s.log] };
 }
 
-function finishFoldOut(s: HandState, winner: HandPlayer): void {
+export function finishFoldOut(s: HandState, winner: HandPlayer): void {
   s.toActSeat = null;
   returnUncalled(s);
   const amount = potTotal(s);

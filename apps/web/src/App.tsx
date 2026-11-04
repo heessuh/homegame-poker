@@ -12,8 +12,8 @@ import { FIXTURE_LABELS, makeFixtures } from "./mock";
 import type { FixtureId } from "./mock";
 import { AwardPanel } from "./Award";
 import { TournamentHud } from "./Tournament";
-import { Avatar, AvatarPicker, Modal, loadAvatar, saveAvatar } from "./ui";
-import { fmt, getPlayerToken, randomId, storeGet, storeSet } from "./util";
+import { Avatar, AvatarPicker, Modal, MoneyInput, loadAvatar, saveAvatar } from "./ui";
+import { fmt, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
 
@@ -167,7 +167,7 @@ function AmountPrompt(props: { title: string; min: number; max: number; cta: str
     <Modal title={props.title} onClose={props.onClose}>
       <p className="muted">Between {fmt(props.min)} and {fmt(props.max)}</p>
       <input type="range" min={props.min} max={props.max} value={Math.min(props.max, Math.max(props.min, v))} onChange={(e) => setV(Number(e.target.value))} />
-      <input className="amt wide" type="number" inputMode="numeric" value={v} min={props.min} max={props.max} onChange={(e) => setV(Number(e.target.value))} autoFocus />
+      <MoneyInput className="amt wide" value={v} min={props.min} max={props.max} onChange={setV} label="Amount" autoFocus />
       <div className="btn-row">
         <button className="btn" onClick={props.onClose}>Cancel</button>
         <button className="btn call" disabled={!ok} onClick={() => { props.onConfirm(v); props.onClose(); }}>{props.cta}</button>
@@ -177,6 +177,7 @@ function AmountPrompt(props: { title: string; min: number; max: number; cta: str
 }
 
 function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; send: Send; connected: boolean; avatar: string | null; onAvatar: (a: string | null) => void }) {
+  setMoneyMode(view.config);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("log");
   const [sitSeat, setSitSeat] = useState<number | null>(null);
@@ -206,8 +207,8 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
               onChange={(e) => send("host:config", { variant: e.target.value as VariantId })}>
               {Object.values(VARIANTS).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
-          ) : <span className="gamename">{VARIANTS[cfg.variant].name}</span>}
-          {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant].name}</span>}
+          ) : <span className="gamename">{VARIANTS[cfg.variant]?.name ?? cfg.variant}</span>}
+          {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant]?.name ?? pendingVariant}</span>}
         </div>
         <div className="top-actions">
           <button className="btn small" onClick={copy}>Copy link</button>

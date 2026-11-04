@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { fmtWith, isDollars, moneyText, parseMoney } from "./util";
 import { AVATAR_EMOJIS, isValidAvatar } from "@homegame/engine";
 import type { TableView } from "@homegame/engine";
 
@@ -84,4 +85,48 @@ export function loadAvatar(): string | null {
 }
 export function saveAvatar(a: string | null): void {
   try { localStorage.setItem("hg.avatar", a ?? ""); } catch { /* ignore */ }
+}
+
+/** Amount input. `value` is integer chips; the box shows dollars when dollars mode is on. Emits integer chips only when valid. */
+export function MoneyInput({ value, onChange, dollars, min, max, label, className, autoFocus, onBlurFix }: {
+  value: number; onChange: (n: number) => void; dollars?: boolean; min?: number; max?: number;
+  label: string; className?: string; autoFocus?: boolean; onBlurFix?: boolean;
+}) {
+  const d = dollars ?? isDollars();
+  const [text, setText] = useState(() => moneyText(value, d));
+  const [err, setErr] = useState<string | null>(null);
+  const last = useRef(value);
+  useEffect(() => {
+    if (parseMoney(text, d) !== value) setText(moneyText(value, d));
+    last.current = value;
+    setErr(null);
+  }, [value, d]); // eslint-disable-line react-hooks/exhaustive-deps
+  const check = (t: string): number | null => {
+    const n = parseMoney(t, d);
+    if (n === null) { setErr(d ? "Enter dollars like 1.25" : "Enter a whole number"); return null; }
+    if (min !== undefined && n < min) { setErr(`At least ${fmtWith(min, d, true)}`); return null; }
+    if (max !== undefined && n > max) { setErr(`At most ${fmtWith(max, d, true)}`); return null; }
+    setErr(null);
+    return n;
+  };
+  const change = (t: string) => {
+    setText(t);
+    const n = check(t);
+    if (n !== null) { last.current = n; onChange(n); }
+  };
+  const blur = () => {
+    if (!onBlurFix) return;
+    const n = parseMoney(text, d);
+    if (n === null) { setText(moneyText(value, d)); setErr(null); return; }
+    const c = Math.max(min ?? 0, Math.min(max ?? n, n));
+    last.current = c; setText(moneyText(c, d)); setErr(null); onChange(c);
+  };
+  return (
+    <span className="moneyin">
+      <input className={className} type="text" inputMode={d ? "decimal" : "numeric"} value={text} aria-label={label}
+        aria-invalid={!!err} autoFocus={autoFocus} onChange={(e) => change(e.target.value)} onBlur={blur} />
+      {d && <span className="unit" aria-hidden="true">$</span>}
+      {err && <span className="note small" role="alert">{err}</span>}
+    </span>
+  );
 }

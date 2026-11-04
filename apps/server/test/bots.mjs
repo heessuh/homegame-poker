@@ -15,6 +15,6 @@ for (let i = 0; i < Number(count); i++) {
       setTimeout(() => s.emit("sit", { seat: free[(i * 3) % free.length], buyIn: v.config.maxBuyIn / 2 }), i * 300);
     }
     const l = v.hand?.legal;
-    if (l) setTimeout(() => s.emit("action", l.canCheck ? { type: "check" } : { type: "call" }), 400);
+    if (l) setTimeout(() => s.emit("action", l.exchange ? { type: "exchange", card: l.exchange.upCards[0] ?? null } : l.declare ? { type: "declare", choice: ["high", "low", "both"][i % 3] } : l.canCheck ? { type: "check" } : { type: "call" }), 400);
   });
 }

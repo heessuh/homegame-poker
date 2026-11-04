@@ -1,6 +1,45 @@
-import type { Card, TableView } from "@homegame/engine";
+import { VARIANTS } from "@homegame/engine";
+import type { Card, Phase, TableConfig, TableView } from "@homegame/engine";
 
-export const fmt = (n: number): string => n.toLocaleString("en-US");
+// ---- Money ----
+// Cash games store chips as cents. When config.money is "cents" (and it is not a tournament) amounts show as dollars.
+let dollarMode = false;
+export function setMoneyMode(config: Pick<TableConfig, "money" | "mode"> | null | undefined): void {
+  dollarMode = !!config && config.money === "cents" && config.mode !== "tournament";
+}
+export const isDollars = (): boolean => dollarMode;
+
+/** Format an amount. Dollars mode: "$12", "$1.25" (whole dollars drop the .00). Chips mode: "1,250". */
+export function fmtWith(n: number, dollars: boolean, keepCents = false): string {
+  if (!dollars) return Math.round(n).toLocaleString("en-US");
+  const neg = n < 0;
+  const c = Math.abs(Math.round(n));
+  const d = Math.floor(c / 100);
+  const r = c % 100;
+  const body = "$" + d.toLocaleString("en-US") + (r !== 0 || keepCents ? "." + String(r).padStart(2, "0") : "");
+  return neg ? "-" + body : body;
+}
+export const fmt = (n: number): string => fmtWith(n, dollarMode);
+/** Always shows cents in dollars mode (bet and call buttons). */
+export const fmtBet = (n: number): string => fmtWith(n, dollarMode, true);
+
+/** Parse typed text to integer chips. Dollars mode accepts "1.25", "$3", ".5"; chips mode whole numbers. Null = invalid. */
+export function parseMoney(text: string, dollars: boolean): number | null {
+  const t = text.trim().replace(/^\$/, "").replace(/,/g, "");
+  if (t === "") return null;
+  if (dollars) {
+    if (!/^(\d+(\.\d{0,2})?|\.\d{1,2})$/.test(t)) return null;
+    return Math.round(parseFloat(t) * 100);
+  }
+  if (!/^\d+$/.test(t)) return null;
+  return Number(t);
+}
+/** Integer chips to the text shown in an input. */
+export function moneyText(n: number, dollars: boolean): string {
+  if (!dollars) return String(n);
+  return n % 100 === 0 ? String(n / 100) : (n / 100).toFixed(2);
+}
+
 
 export async function sha256Hex(text: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
@@ -38,3 +77,14 @@ export function totalPot(view: TableView): number {
   if (!h) return 0;
   return h.pots.reduce((a, p) => a + p.amount, 0) + view.seats.reduce((a, s) => a + (s?.bet ?? 0), 0);
 }
+
+/** Stud games (5-Murder). Defensive: works before the engine build knows the variant. */
+export function isStud(config: Pick<TableConfig, "variant">): boolean {
+  const v = VARIANTS[config.variant] as { kind?: string } | undefined;
+  return v?.kind === "stud" || (config.variant as string) === "murder5";
+}
+
+export const STUD_STREETS: Partial<Record<Phase, string>> = {
+  "2nd": "2nd card", "3rd": "3rd card", "4th": "4th card", "5th": "5th card",
+  draw1: "Exchange 1", draw2: "Exchange 2", declare: "Declare",
+};

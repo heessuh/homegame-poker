@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PendingAward, TableView } from "@homegame/engine";
 import type { Send } from "./App";
-import { Who, avatarOf } from "./ui";
+import { MoneyInput, Who, avatarOf } from "./ui";
 import { fmt } from "./util";
 
 function nameOf(view: TableView, id: string): string {
@@ -10,21 +10,21 @@ function nameOf(view: TableView, id: string): string {
 
 export function AwardPanel({ view, pa, send }: { view: TableView; pa: PendingAward; send: Send }) {
   const suggestedMap = () => {
-    const m: Record<string, string> = {};
-    for (const id of pa.candidatePlayerIds) m[id] = "0";
-    for (const s of pa.suggested) m[s.playerId] = String((Number(m[s.playerId]) || 0) + s.amount);
+    const m: Record<string, number> = {};
+    for (const id of pa.candidatePlayerIds) m[id] = 0;
+    for (const s of pa.suggested) m[s.playerId] = (m[s.playerId] || 0) + s.amount;
     return m;
   };
-  const [vals, setVals] = useState<Record<string, string>>(suggestedMap);
+  const [vals, setVals] = useState<Record<string, number>>(suggestedMap);
   const key = `${pa.handNumber}:${pa.amount}:${pa.candidatePlayerIds.join(",")}`;
   useEffect(() => setVals(suggestedMap()), [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const int = (v: string | undefined) => Math.max(0, Math.floor(Number(v) || 0));
+  const int = (v: number | undefined) => Math.max(0, Math.floor(v || 0));
   const sum = pa.candidatePlayerIds.reduce((a, id) => a + int(vals[id]), 0);
   const remaining = pa.amount - sum;
-  const set = (id: string, v: string) => setVals({ ...vals, [id]: v });
+  const set = (id: string, v: number) => setVals({ ...vals, [id]: v });
   const allTo = (id: string) => {
-    const m: Record<string, string> = {};
-    for (const c of pa.candidatePlayerIds) m[c] = c === id ? String(pa.amount) : "0";
+    const m: Record<string, number> = {};
+    for (const c of pa.candidatePlayerIds) m[c] = c === id ? pa.amount : 0;
     setVals(m);
   };
   const award = () => send("host:award", {
@@ -39,7 +39,7 @@ export function AwardPanel({ view, pa, send }: { view: TableView; pa: PendingAwa
         {pa.candidatePlayerIds.map((id) => (
           <div key={id} className="arow">
             <span className="aname"><Who avatar={avatarOf(view, id)} name={nameOf(view, id)} /></span>
-            <input type="number" inputMode="numeric" min={0} value={vals[id] ?? "0"} onChange={(e) => set(id, e.target.value)} aria-label={`Amount for ${nameOf(view, id)}`} />
+            <MoneyInput key={id} value={vals[id] ?? 0} onChange={(n) => set(id, n)} label={`Amount for ${nameOf(view, id)}`} />
             <button className="btn tiny" onClick={() => allTo(id)} title={`All to ${nameOf(view, id)}`}>All to {nameOf(view, id)}</button>
           </div>
         ))}

@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import {
   DEFAULT_CONFIG,
+  DEFAULT_HOUSE_LIMIT,
+  DEFAULT_STUD,
   VARIANTS,
   applyAction,
   commitDeck,
@@ -13,6 +15,9 @@ import {
   type HandRecord,
   type HandState,
   type HandView,
+  type HouseLimit,
+  type StartHandInput,
+  type StudStakes,
   type PendingAward,
   type LedgerEntry,
   type PlayerAction,
@@ -110,7 +115,42 @@ const FOLD_DELAY = 2500;
 const MIN_DELAY = 1000;
 const HOST_HANDOFF_MS = 60_000;
 
-const CONFIG_KEYS = ["variant", "smallBlind", "bigBlind", "maxSeats", "actionTimeoutSec", "minBuyIn", "maxBuyIn", "awardMode", "mode", "tournament"] as const;
+const CONFIG_KEYS = [
+  "variant", "smallBlind", "bigBlind", "maxSeats", "actionTimeoutSec", "minBuyIn", "maxBuyIn", "awardMode", "mode", "tournament",
+  "stud", "houseLimit", "money",
+] as const;
+
+const STUD_KEYS = Object.keys(DEFAULT_STUD);
+const HOUSE_KEYS = Object.keys(DEFAULT_HOUSE_LIMIT);
+const CARD_RE = /^[2-9TJQKA][cdhs]$/;
+const STAGE_LABEL: Partial<Record<string, string>> = {
+  "2nd": "Betting: 2nd card", "3rd": "3rd card dealt", "4th": "4th card dealt", "5th": "5th card dealt (face down)",
+  draw1: "Exchange round 1", draw2: "Exchange round 2", declare: "Declare: High, Low or Both",
+};
+
+/** Plain-object copy of a config with the nested objects detached from the source. */
+function cloneConfig(c: TableConfig): TableConfig {
+  return { ...c, stud: { ...c.stud }, houseLimit: { ...c.houseLimit }, tournament: JSON.parse(JSON.stringify(c.tournament)) as TournamentConfig };
+}
+
+/** Base overlaid with a (possibly partial) config; nested stud/houseLimit objects merge key by key. */
+function mergeConfig(base: TableConfig, patch: Partial<TableConfig> | undefined): TableConfig {
+  const out = cloneConfig(base);
+  if (!patch) return out;
+  const { stud, houseLimit, tournament, ...rest } = patch;
+  Object.assign(out, rest);
+  if (stud && typeof stud === "object") out.stud = { ...out.stud, ...stud };
+  if (houseLimit && typeof houseLimit === "object") out.houseLimit = { ...out.houseLimit, ...houseLimit };
+  if (tournament && typeof tournament === "object") out.tournament = JSON.parse(JSON.stringify(tournament)) as TournamentConfig;
+  return out;
+}
+
+/** 125 -> "$1.25". */
+export function formatCents(n: number): string {
+  const neg = n < 0 ? "-" : "";
+  const a = Math.abs(Math.round(n));
+  return `${neg}$${Math.floor(a / 100)}.${String(a % 100).padStart(2, "0")}`;
+}
 
 const ordinal = (n: number): string => {
   const m100 = n % 100;
@@ -158,7 +198,7 @@ export class Table {
     this.sched = opts.scheduler;
     this.deckSource = opts.deckSource;
     this.onChange = opts.onChange;
-    this.config = { ...DEFAULT_CONFIG, ...opts.config };
+    this.config = mergeConfig(DEFAULT_CONFIG, opts.config);
     if (this.config.mode === "tournament") this.t = this.newTourney();
     this.idleSince = this.now();
   }
@@ -280,7 +320,7 @@ export class Table {
       if (t.status === "finished") this.t = this.newTourney();
       buyIn = this.config.tournament.startingStack;
     } else if (!isInt(buyIn) || buyIn < this.config.minBuyIn || buyIn > this.config.maxBuyIn) {
-      throw new UserError(`Buy-in must be a whole number from ${this.config.minBuyIn} to ${this.config.maxBuyIn}.`);
+      throw new UserError(`Buy-in must be from ${this.m(this.config.minBuyIn)} to ${this.m(this.config.maxBuyIn)}.`);
     }
     p.seat = seat;
     p.stack = buyIn;
@@ -289,7 +329,7 @@ export class Table {
     p.sittingOut = false;
     p.timeouts = 0;
     this.clearQueued(p);
-    this.addLog(`${p.name} sat in seat ${seat + 1} with ${buyIn}`);
+    this.addLog(`${p.name} sat in seat ${seat + 1} with ${this.m(buyIn)}`);
     this.changed();
   }
 
@@ -326,12 +366,12 @@ export class Table {
     if (p.seat === null) throw new UserError("Sit down before buying more chips.");
     if (!isInt(amount) || amount <= 0) throw new UserError("Enter a whole number of chips.");
     if (this.inLiveHand(p)) {
-      if (p.stack + p.rebuyQueued + amount > this.config.maxBuyIn) throw new UserError(`Your stack cannot exceed ${this.config.maxBuyIn}.`);
+      if (p.stack + p.rebuyQueued + amount > this.config.maxBuyIn) throw new UserError(`Your stack cannot exceed ${this.m(this.config.maxBuyIn)}.`);
       p.rebuyQueued += amount;
-      this.addLog(`${p.name} will add ${amount} after this hand`);
+      this.addLog(`${p.name} will add ${this.m(amount)} after this hand`);
     } else {
       const total = p.stack + amount;
-      if (total > this.config.maxBuyIn) throw new UserError(`Your stack cannot exceed ${this.config.maxBuyIn}.`);
+      if (total > this.config.maxBuyIn) throw new UserError(`Your stack cannot exceed ${this.m(this.config.maxBuyIn)}.`);
       this.credit(p, amount, "bought");
     }
     this.changed();
@@ -345,7 +385,7 @@ export class Table {
       p.sittingOut = false;
       p.timeouts = 0;
     }
-    this.addLog(`${p.name} ${verb} ${amount} more chips`);
+    this.addLog(`${p.name} ${verb} ${this.m(amount)} more${this.m(0) === "0" ? " chips" : ""}`);
   }
 
   private removeFromSeat(p: Player, why: string): void {
@@ -354,7 +394,7 @@ export class Table {
       return;
     }
     if (p.stack > 0 && !this.isTourney()) p.cashOuts += p.stack;
-    this.addLog(`${p.name} ${why} with ${p.stack}`);
+    this.addLog(`${p.name} ${why} with ${this.m(p.stack)}`);
     p.seat = null;
     p.stack = 0;
     p.sittingOut = false;
@@ -459,7 +499,18 @@ export class Table {
     for (const key of Object.keys(patch)) {
       if (!(CONFIG_KEYS as readonly string[]).includes(key)) throw new UserError(`Unknown setting: ${key}`);
       const val = (patch as Record<string, unknown>)[key];
-      (next as unknown as Record<string, unknown>)[key] = key === "tournament" && val && typeof val === "object" ? JSON.parse(JSON.stringify(val)) : val;
+      const rec = next as unknown as Record<string, unknown>;
+      if (key === "tournament" && val && typeof val === "object") rec[key] = JSON.parse(JSON.stringify(val));
+      else if (key === "stud" || key === "houseLimit") {
+        if (!val || typeof val !== "object" || Array.isArray(val)) throw new UserError(`Invalid ${key === "stud" ? "stud" : "house limit"} settings.`);
+        const known = key === "stud" ? STUD_KEYS : HOUSE_KEYS;
+        for (const k of Object.keys(val)) if (!known.includes(k)) throw new UserError(`Unknown setting: ${key}.${k}`);
+        rec[key] = { ...(rec[key] as object), ...(val as object) };
+      } else rec[key] = val;
+    }
+    // A one-step game switch sends only the variant: shrink the seat count to fit the new game.
+    if (patch.variant !== undefined && patch.maxSeats === undefined && VARIANTS[next.variant]) {
+      next.maxSeats = Math.min(next.maxSeats, VARIANTS[next.variant].maxPlayers, 10);
     }
     this.validateConfig(next);
     const tourneyChange = next.mode !== this.config.mode || JSON.stringify(next.tournament) !== JSON.stringify(this.config.tournament);
@@ -505,7 +556,31 @@ export class Table {
     if (c.minBuyIn > c.maxBuyIn) throw new UserError("The minimum buy-in cannot exceed the maximum.");
     if (c.awardMode !== "auto" && c.awardMode !== "host") throw new UserError("Unknown award mode.");
     if (c.mode !== "cash" && c.mode !== "tournament") throw new UserError("Unknown game mode.");
+    if (c.money !== "cents" && c.money !== "chips") throw new UserError("Unknown money format.");
+    this.validateStud(c.stud);
+    this.validateHouse(c.houseLimit);
     this.validateTournament(c.tournament);
+  }
+
+  private validateStud(s: StudStakes): void {
+    if (!s || typeof s !== "object") throw new UserError("Invalid stud settings.");
+    const ints: [keyof StudStakes, number][] = [["ante", 0], ["minBet", 1], ["maxBet", 1], ["maxBetLastRound", 1], ["downExchangeCost", 0], ["maxRaises", 0]];
+    for (const [k, min] of ints) {
+      const v = s[k];
+      if (!isInt(v) || v < min) throw new UserError(`Stud ${k} must be a whole number, ${min} or more.`);
+    }
+    if (s.maxBet < s.minBet) throw new UserError("The stud maximum bet cannot be below the minimum bet.");
+    if (s.maxBetLastRound < s.minBet) throw new UserError("The stud last-round maximum cannot be below the minimum bet.");
+    if (s.maxRaises > 10) throw new UserError("Stud raises per round must be 0 to 10.");
+    if (typeof s.raiseMustExceed !== "boolean" || typeof s.declare !== "boolean") throw new UserError("Invalid stud settings.");
+  }
+
+  private validateHouse(h: HouseLimit): void {
+    if (!h || typeof h !== "object") throw new UserError("Invalid house limit settings.");
+    if (typeof h.enabled !== "boolean" || typeof h.raiseMustExceed !== "boolean") throw new UserError("Invalid house limit settings.");
+    if (!isInt(h.minBet) || h.minBet < 1 || !isInt(h.maxBet) || h.maxBet < 1) throw new UserError("House limit bets must be positive whole numbers.");
+    if (h.maxBet < h.minBet) throw new UserError("The house limit maximum cannot be below the minimum.");
+    if (!isInt(h.maxRaises) || h.maxRaises < 0 || h.maxRaises > 10) throw new UserError("House limit raises per round must be 0 to 10.");
   }
 
   private validateTournament(tc: TournamentConfig): void {
@@ -575,7 +650,7 @@ export class Table {
     if (this.inLiveHand(t)) {
       if (t.stack + t.adjustQueued + delta < 0) throw new UserError("That would take the stack below zero.");
       t.adjustQueued += delta;
-      this.addLog(`The host will adjust ${t.name}'s stack by ${delta > 0 ? "+" : ""}${delta} after this hand`);
+      this.addLog(`The host will adjust ${t.name}'s stack by ${delta > 0 ? "+" : ""}${this.m(delta)} after this hand`);
     } else {
       this.applyAdjust(t, delta);
       this.eliminate();
@@ -590,7 +665,7 @@ export class Table {
       const take = Math.min(t.stack, -delta);
       t.stack -= take;
       if (!this.isTourney()) t.cashOuts += take;
-      this.addLog(`The host removed ${take} chips from ${t.name}`);
+      this.addLog(`The host removed ${this.m(take)}${this.m(0) === "0" ? " chips" : ""} from ${t.name}`);
       if (t.stack === 0) t.sittingOut = true;
     }
   }
@@ -604,23 +679,36 @@ export class Table {
     if (p.seat === null || h.state.toActSeat !== p.seat) throw new UserError("It is not your turn.");
     if (!act || typeof act !== "object") throw new UserError("Invalid action.");
     if (act.type === "raise" && !isInt(act.amount)) throw new UserError("Enter a whole number of chips.");
+    if (act.type === "exchange" && act.card !== null && (typeof act.card !== "string" || !CARD_RE.test(act.card))) throw new UserError("Pick one of your cards.");
+    if (act.type === "declare" && act.choice !== "high" && act.choice !== "low" && act.choice !== "both") throw new UserError("Declare high, low or both.");
     const before = h.state;
     const legal = legalActions(before, p.id);
     let after: HandState;
     try {
       after = applyAction(before, p.id, act);
     } catch (e) {
-      throw new UserError(e instanceof Error ? e.message : "That action is not allowed.");
+      const msg = e instanceof Error ? e.message : "That action is not allowed.";
+      // Engine messages carry raw chip counts ("raise to 221 exceeds the maximum of 220"); show them as money.
+      throw new UserError(msg.replace(/\b(raise to|maximum of|minimum of|bet of|at least) (\d+)\b/g, (_m, w: string, n: string) => `${w} ${this.m(Number(n))}`));
     }
     const hadBet = before.players.some((q) => q.bet > 0 && q.playerId !== p.id) || (before.players.find((q) => q.playerId === p.id)?.bet ?? 0) > 0;
     let text: string;
     switch (act.type) {
       case "fold": text = "folds"; break;
       case "check": text = "checks"; break;
-      case "call": text = `calls ${legal?.callAmount ?? ""}`.trim(); break;
-      default: text = `${hadBet ? "raises" : "bets"} to ${act.amount}`;
+      case "call": text = legal ? `calls ${this.m(legal.callAmount)}` : "calls"; break;
+      case "raise": text = `${hadBet ? "raises" : "bets"} to ${this.m(act.amount)}`; break;
+      case "exchange": {
+        const mine = before.players.find((q) => q.playerId === p.id);
+        if (act.card === null) text = "keeps";
+        else if (mine?.holeCards.includes(act.card)) text = `swaps a face-down card (−${this.m(before.stakes?.downExchangeCost ?? DEFAULT_STUD.downExchangeCost)})`;
+        else text = `swaps up card ${act.card}`;
+        break;
+      }
+      case "declare": text = "has declared"; break; // never reveal the choice before everyone has declared
+      default: text = "acts";
     }
-    if (after.players.find((q) => q.playerId === p.id)?.allIn) text += " (all in)";
+    if ((act.type === "call" || act.type === "raise") && after.players.find((q) => q.playerId === p.id)?.allIn) text += " (all in)";
     p.timeouts = 0;
     this.commit(after, `${p.name} ${text}`);
     this.settle();
@@ -649,7 +737,26 @@ export class Table {
         if (prevLen <= from && after.board.length >= to) this.addLog(`${label}: ${after.board.slice(from, to).join(" ")}`);
       }
     }
+    if (after.phase !== h.state.phase && VARIANTS[after.variant].kind === "stud") {
+      const label = STAGE_LABEL[after.phase];
+      if (label) this.addLog(label);
+    }
+    // Everyone has declared: now (and only now) the choices can be shown.
+    if (after.declarationsRevealed && !h.state.declarationsRevealed) {
+      const word = { high: "High", low: "Low", both: "Both" } as const;
+      for (const hp of after.players) {
+        if (hp.folded || !hp.declared) continue;
+        this.addLog(`${this.players.get(hp.playerId)?.name ?? "Someone"} declares ${word[hp.declared]}`);
+      }
+    }
     h.state = after;
+  }
+
+  /** Verb for an automatic action (away or timeout) given the state before it. */
+  private autoVerb(prev: HandState, next: HandState, playerId: string): string {
+    if (prev.stage === "exchange") return "keeps";
+    if (prev.stage === "declare") return "has declared";
+    return next.players.find((q) => q.playerId === playerId)?.folded ? "folds" : "checks";
   }
 
   private settleIfActor(p: Player): void {
@@ -669,8 +776,7 @@ export class Table {
       let next: HandState;
       if (p.kickQueued && legalActions(h.state, p.id)?.canFold) next = applyAction(h.state, p.id, { type: "fold" });
       else next = timeoutAction(h.state);
-      const folded = next.players.find((q) => q.playerId === p.id)?.folded;
-      this.commit(next, `${p.name} ${folded ? "folds" : "checks"} (away)`);
+      this.commit(next, `${p.name} ${this.autoVerb(h.state, next, p.id)} (away)`);
     }
     if (h.state.outcome) this.finishHand();
     else this.armActionTimer();
@@ -706,9 +812,8 @@ export class Table {
     if (!p) return;
     this.clearActionTimer();
     const next = timeoutAction(h.state);
-    const folded = next.players.find((q) => q.playerId === p.id)?.folded;
     if (counted) p.timeouts++;
-    this.commit(next, `${p.name} ${counted ? "timed out and" : "was timed out by the host and"} ${folded ? "folds" : "checks"}`);
+    this.commit(next, `${p.name} ${counted ? "timed out and" : "was timed out by the host and"} ${this.autoVerb(h.state, next, p.id)}`);
     if (counted && p.timeouts >= 2 && !p.sittingOut) {
       p.sittingOut = true;
       this.addLog(`${p.name} is sitting out after two timeouts`);
@@ -757,6 +862,11 @@ export class Table {
     const deck = this.deckSource();
     const { hash, reveal } = commitDeck(deck);
     this.handCounter++;
+    const isStud = VARIANTS[this.config.variant].kind === "stud";
+    // House limit never applies in tournaments; stud stakes always come from the table config.
+    const extra: Record<string, unknown> = isStud
+      ? { stakes: { ...this.config.stud } }
+      : { limits: this.isTourney() ? undefined : { ...this.config.houseLimit } };
     const state = startHand({
       handNumber: this.handCounter,
       variant: this.config.variant,
@@ -765,13 +875,15 @@ export class Table {
       smallBlind: blinds.smallBlind,
       bigBlind: blinds.bigBlind,
       deck,
-    });
+      ...extra,
+    } as StartHandInput);
     this.hand = {
       state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null,
       startStacks: new Map(el.map((p) => [p.id, p.stack])), awarded: null,
     };
     const btn = this.seatOwner(button);
     this.addLog(`Hand #${this.handCounter} (${VARIANTS[this.config.variant].name}), button: ${btn?.name ?? "?"}`);
+    if (isStud) this.addLog(`Antes: ${this.m(this.config.stud.ante)} each`);
     this.settle();
   }
 
@@ -803,7 +915,7 @@ export class Table {
       }
       for (const g of groups.values()) {
         const nm = this.players.get(g.id)?.name ?? "Someone";
-        this.addLog(`${nm} wins ${g.amount}${g.name ? ` with ${g.name}${g.low ? " (low)" : ""}` : ""}`);
+        this.addLog(`${nm} wins ${this.m(g.amount)}${g.name ? ` with ${g.name}${g.low ? " (low)" : ""}` : ""}`);
       }
     }
     this.lastHand = {
@@ -815,7 +927,7 @@ export class Table {
       winners: o.winners,
       // The engine logs "<playerId> (seat N)" with 0-based seats; show names instead.
       summary: o.summary.map((line) =>
-        line
+        this.moneyLine(line)
           .replace(/([0-9a-f]{8,}) \(seat \d+\)/g, (_m, id: string) => this.players.get(id)?.name ?? "Someone")
           .replace(/([0-9a-f]{8,})(?= wins)/g, (_m, id: string) => this.players.get(id)?.name ?? "Someone")
           .replace(/button: seat (\d+)/, (_m, seat: string) => {
@@ -835,7 +947,7 @@ export class Table {
         candidatePlayerIds: [...h.participants],
         suggested: [...won].filter(([, amt]) => amt > 0).map(([playerId, amount]) => ({ playerId, amount })),
       };
-      this.addLog(`Hand #${h.state.handNumber}: ${withheld} is waiting for the dealer to award`);
+      this.addLog(`Hand #${h.state.handNumber}: ${this.m(withheld)} is waiting for the dealer to award`);
       return;
     }
     this.completeHand();
@@ -882,7 +994,7 @@ export class Table {
       const to = this.players.get(tr.toId);
       if (!from || !to) continue;
       if (from.seat === null || to.seat === null || from.stack < tr.amount) {
-        this.addLog(`Dealer's move of ${tr.amount} from ${from.name} to ${to.name} was skipped (not enough chips)`);
+        this.addLog(`Dealer's move of ${this.m(tr.amount)} from ${from.name} to ${to.name} was skipped (not enough chips)`);
         continue;
       }
       this.moveChips(from, to, tr.amount);
@@ -893,7 +1005,7 @@ export class Table {
     const wasEmpty = to.stack <= 0;
     from.stack -= amount;
     to.stack += amount;
-    this.addLog(`Dealer moves ${amount} from ${from.name} to ${to.name}`);
+    this.addLog(`Dealer moves ${this.m(amount)} from ${from.name} to ${to.name}`);
     if (!this.isTourney()) {
       if (wasEmpty) {
         to.sittingOut = false;
@@ -917,7 +1029,7 @@ export class Table {
       totals.set(id, (totals.get(id) ?? 0) + amount);
     }
     const sum = [...totals.values()].reduce((x, y) => x + y, 0);
-    if (sum !== pa.amount) throw new UserError(`Awards must add up to exactly ${pa.amount} (you entered ${sum}).`);
+    if (sum !== pa.amount) throw new UserError(`Awards must add up to exactly ${this.m(pa.amount)} (you entered ${this.m(sum)}).`);
     const h = this.hand!;
     const byHand = new Map<string, string>();
     for (const w of h.state.outcome!.winners) if (w.handName && !byHand.has(w.playerId)) byHand.set(w.playerId, w.handName);
@@ -928,7 +1040,7 @@ export class Table {
       const p = this.players.get(id)!;
       p.stack += amount;
       winners.push({ playerId: id, amount, potIndex: 0, half: "whole", handName: byHand.get(id) ?? null });
-      parts.push(`${amount} to ${p.name}`);
+      parts.push(`${this.m(amount)} to ${p.name}`);
     }
     this.addLog(`Dealer awards ${parts.join(", ")}`);
     h.awarded = winners;
@@ -948,9 +1060,9 @@ export class Table {
     if (!isInt(amount) || amount <= 0) throw new UserError("Enter a positive whole number of chips.");
     if (this.handOpen()) {
       this.transfers.push({ fromId: from.id, toId: to.id, amount });
-      this.addLog(`Dealer will move ${amount} from ${from.name} to ${to.name} after this hand`);
+      this.addLog(`Dealer will move ${this.m(amount)} from ${from.name} to ${to.name} after this hand`);
     } else {
-      if (from.stack < amount) throw new UserError(`${from.name} only has ${from.stack}.`);
+      if (from.stack < amount) throw new UserError(`${from.name} only has ${this.m(from.stack)}.`);
       this.moveChips(from, to, amount);
       this.eliminate();
     }
@@ -1218,6 +1330,20 @@ export class Table {
 
   // ------------------------------------------------------------------ views
 
+  /** Chip amount for log lines and messages: dollars when the table plays in cents (never in tournaments). */
+  private m(n: number): string {
+    return this.config.money === "cents" && !this.isTourney() ? formatCents(n) : String(n);
+  }
+
+  /** Converts the raw numbers in an engine-produced summary line to dollars (best effort). */
+  private moneyLine(line: string): string {
+    if (this.config.money !== "cents" || this.isTourney()) return line;
+    return line
+      .replace(/\b(posts small blind|posts big blind|posts|antes|bets|raises to|calls|wins|pays|returned|All-in|Ante) (\d+)\b/g, (_m, w: string, n: string) => `${w} ${formatCents(Number(n))}`)
+      .replace(/Uncalled bet of (\d+)/g, (_m, n: string) => `Uncalled bet of ${formatCents(Number(n))}`)
+      .replace(/\(−(\d+)\)/g, (_m, n: string) => `(−${formatCents(Number(n))})`);
+  }
+
   private addLog(line: string): void {
     this.log.push(line);
     if (this.log.length > LOG_CAP) this.log.splice(0, this.log.length - LOG_CAP);
@@ -1233,10 +1359,16 @@ export class Table {
       const hp = h?.state.players.find((q) => q.playerId === p.id);
       const shown = h?.state.outcome?.shown[p.id];
       let holeCards: Card[] | null = null;
+      const ups = hp?.upCards ?? [];
       if (hp) {
         if (p.id === me.id) holeCards = hp.holeCards.length ? [...hp.holeCards] : null;
-        else if (shown && shown.length) holeCards = [...shown];
+        else if (shown && shown.length) {
+          // Stud showdown reveals all five cards; the up cards are already public, so keep only the down ones.
+          const down = shown.filter((c) => !ups.includes(c));
+          holeCards = down.length ? down : null;
+        }
       }
+      const revealed = !!h?.state.declarationsRevealed;
       seats[p.seat!] = {
         seat: p.seat!,
         playerId: p.id,
@@ -1252,6 +1384,10 @@ export class Table {
         avatar: p.avatar,
         timeLimitSec: p.timerSec,
         holeCards,
+        holeCount: hp && !hp.folded ? hp.holeCards.length : 0,
+        upCards: hp && !hp.folded ? [...ups] : [],
+        declared: revealed && hp && !hp.folded ? (hp.declared ?? null) : null,
+        hasDeclared: !!hp && !hp.folded && hp.declared != null,
         lastAction: hp ? hp.lastAction : null,
       };
     }
@@ -1265,6 +1401,7 @@ export class Table {
         board: [...h.state.board],
         pots: potsView(h.state),
         toActSeat: toAct,
+        stage: h.state.stage ?? (toAct !== null ? "bet" : null),
         actionDeadline: done ? null : h.actionDeadline,
         legal: actor && actor.id === me.id ? legalActions(h.state, me.id) : null,
         deckHash: h.deckHash,
@@ -1281,8 +1418,8 @@ export class Table {
       tableId: this.tableId,
       hostPlayerId: this.hostId,
       you: { playerId: me.id, seat: me.seat, isHost: this.hostId === me.id },
-      config: { ...this.config },
-      pendingConfig: this.pendingConfig ? { ...this.pendingConfig } : null,
+      config: cloneConfig(this.config),
+      pendingConfig: this.pendingConfig ? cloneConfig(this.pendingConfig) : null,
       status: this.status,
       seats,
       hand,

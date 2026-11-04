@@ -1,4 +1,4 @@
-export type VariantId = "nlhe" | "nlhe-hilo" | "plo4" | "plo5" | "plo4-8" | "plo5-8" | "plo4-lo8" | "plo4-lo" | "fyst";
+export type VariantId = "nlhe" | "nlhe-hilo" | "plo4" | "plo5" | "plo4-8" | "plo5-8" | "plo4-lo8" | "plo4-lo" | "fyst" | "murder5";
 
 export interface Variant {
   id: VariantId;
@@ -6,7 +6,7 @@ export interface Variant {
   holeCards: 2 | 4 | 5;
   /** Omaha: a hand must use exactly 2 hole cards + 3 board cards. Hold'em: any 5 of 7. */
   mustUseTwoHole: boolean;
-  betting: "no-limit" | "pot-limit";
+  betting: "no-limit" | "pot-limit" | "spread-limit";
   /** Hi/Lo split. The low half needs an 8-or-better hand unless lowRule is "any". */
   hiLo: boolean;
   /** "any": the lowest hand always takes the low half (ace-to-five, pairs count against you). Default "8-or-better". */
@@ -19,6 +19,8 @@ export interface Variant {
   split?: "high" | "hilo" | "low";
   /** Low-only games: "best" (default) low wins, or "second": the second-best low group wins (FYST). */
   lowWinner?: "best" | "second";
+  /** "board" (default): community-card games. "stud": 5-Murder, see stud.ts. */
+  kind?: "board" | "stud";
   maxPlayers: number;
 }
 
@@ -36,4 +38,5 @@ export const VARIANTS: Record<VariantId, Variant> = {
   "plo4-lo8": { id: "plo4-lo8", name: "Pot-Limit Omaha Low (8 or better)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, split: "low", lowRule: "8-or-better", maxPlayers: 10 },
   "plo4-lo": { id: "plo4-lo", name: "Pot-Limit Omaha Low (no qualifier)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, split: "low", lowRule: "any", maxPlayers: 10 },
   fyst: { id: "fyst", name: "FYST (Omaha, second-best low wins)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, split: "low", lowRule: "any", lowWinner: "second", maxPlayers: 10 },
+  murder5: { id: "murder5", name: "5-Murder", holeCards: 5, mustUseTwoHole: false, betting: "spread-limit", hiLo: true, lowRule: "any", split: "hilo", kind: "stud", maxPlayers: 8 },
 };

@@ -1,5 +1,7 @@
 # Hosting
 
+The rules the site enforces for our games are written up in [House Rules](HOUSE_RULES.md). In the Host tab, **House limit** (Hold’em and Omaha) and **5-Murder stakes** hold those settings, and **Money** switches between dollars and cents and plain chips.
+
 A guide for the person running the game night.
 
 ## Create a table and invite people

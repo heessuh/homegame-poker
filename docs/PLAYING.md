@@ -1,5 +1,7 @@
 # Playing
 
+Our own betting limits and game rules (5-Murder, FYST, the Hi/Lo games) are in [House Rules](HOUSE_RULES.md).
+
 A quick guide for friends at the table. You don’t need an account or an app: just a link.
 
 ## Join from a link

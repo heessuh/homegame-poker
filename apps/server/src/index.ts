@@ -199,6 +199,16 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
         case "check": act = { type: "check" }; break;
         case "call": act = { type: "call" }; break;
         case "raise": act = { type: "raise", amount: int(p.amount, "Amount") }; break;
+        case "exchange": {
+          if (p.card !== null && (typeof p.card !== "string" || !/^[2-9TJQKA][cdhs]$/.test(p.card))) throw new UserError("Pick one of your cards.");
+          act = { type: "exchange", card: p.card as Card | null };
+          break;
+        }
+        case "declare": {
+          if (p.choice !== "high" && p.choice !== "low" && p.choice !== "both") throw new UserError("Declare high, low or both.");
+          act = { type: "declare", choice: p.choice };
+          break;
+        }
         default: throw new UserError("Unknown action.");
       }
       table.action(playerId, act);

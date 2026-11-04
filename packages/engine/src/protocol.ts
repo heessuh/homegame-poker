@@ -16,7 +16,53 @@ export interface TableConfig {
   awardMode: "auto" | "host";
   mode: "cash" | "tournament";
   tournament: TournamentConfig;
+  /** Stakes for stud games (5-Murder). */
+  stud: StudStakes;
+  /** House betting limit for board games (Hold'em/Omaha). When enabled it replaces no-limit/pot-limit sizing. */
+  houseLimit: HouseLimit;
+  /** "cents": 1 chip = 1 cent, shown as dollars ($1.25). "chips": plain numbers (tournaments always show chips). */
+  money: "cents" | "chips";
 }
+
+/**
+ * Spread-limit betting used by the house games. A bet or raise INCREMENT must be between minBet and maxBet;
+ * with raiseMustExceed, each raise increment must be strictly larger than the previous bet/raise increment
+ * on that street (preflop, the big blind counts as the opening bet). At most maxRaises raises per round,
+ * heads-up included. All-in for less is always allowed and does not reopen betting if incomplete.
+ */
+export interface HouseLimit {
+  enabled: boolean;
+  minBet: number;
+  maxBet: number;
+  maxRaises: number;
+  raiseMustExceed: boolean;
+}
+
+export const DEFAULT_HOUSE_LIMIT: HouseLimit = { enabled: true, minBet: 20, maxBet: 200, maxRaises: 3, raiseMustExceed: true };
+
+/** 5-Murder uses the same spread-limit rules as HouseLimit, with a bigger cap in the final round. */
+export interface StudStakes {
+  ante: number; // every dealt player posts this before the deal
+  minBet: number; // smallest bet or raise increment
+  maxBet: number; // largest bet or raise increment in every round except the last
+  maxBetLastRound: number; // largest bet or raise increment in the final round (after the second exchange)
+  downExchangeCost: number; // paid into the pot to swap a face-down card (face-up swaps are free)
+  maxRaises: number; // raises allowed per round after the opening bet, heads-up included
+  raiseMustExceed: boolean; // each raise increment must be larger than the previous one
+  /** true: players secretly declare High, Low or Both before the showdown. false: cards speak. */
+  declare: boolean;
+}
+
+export const DEFAULT_STUD: StudStakes = {
+  ante: 20,
+  minBet: 20,
+  maxBet: 100,
+  maxBetLastRound: 200,
+  downExchangeCost: 50,
+  maxRaises: 3,
+  raiseMustExceed: true,
+  declare: true,
+};
 
 export interface BlindLevel {
   smallBlind: number;
@@ -56,15 +102,18 @@ export function isValidAvatar(a: string): boolean {
 
 export const DEFAULT_CONFIG: TableConfig = {
   variant: "nlhe",
-  smallBlind: 1,
-  bigBlind: 2,
+  smallBlind: 10,
+  bigBlind: 20,
   maxSeats: 9,
   actionTimeoutSec: 30,
-  minBuyIn: 40,
-  maxBuyIn: 400,
+  minBuyIn: 500,
+  maxBuyIn: 5000,
   awardMode: "auto",
   mode: "cash",
   tournament: TOURNAMENT_PRESETS.standard.config,
+  stud: DEFAULT_STUD,
+  houseLimit: DEFAULT_HOUSE_LIMIT,
+  money: "cents",
 };
 
 /** "raise" covers both bet and raise; amount is the player's TOTAL contribution on this street after the action. */
@@ -72,7 +121,13 @@ export type PlayerAction =
   | { type: "fold" }
   | { type: "check" }
   | { type: "call" }
-  | { type: "raise"; amount: number };
+  | { type: "raise"; amount: number }
+  /** Stud exchange rounds: keep everything, or swap one card. A face-down swap costs StudStakes.downExchangeCost. */
+  | { type: "exchange"; card: Card | null }
+  /** Stud declare round. Declaring "both" means you must win or tie BOTH sides, or you get nothing. */
+  | { type: "declare"; choice: Declaration };
+
+export type Declaration = "high" | "low" | "both";
 
 export interface LegalActions {
   canFold: boolean;
@@ -83,9 +138,17 @@ export interface LegalActions {
   minRaiseTo: number | null;
   /** All-in amount for no-limit; pot-size raise (capped at stack) for pot-limit. */
   maxRaiseTo: number | null;
+  /** Stud only, during an exchange stage (betting fields are then all off). */
+  exchange?: { downCards: Card[]; upCards: Card[]; downCost: number; canAffordDown: boolean };
+  /** Stud only, during the declare stage. */
+  declare?: boolean;
 }
 
-export type Phase = "preflop" | "flop" | "turn" | "river" | "showdown" | "complete";
+export type Phase =
+  | "preflop" | "flop" | "turn" | "river"
+  // Stud (5-Murder): 2nd..5th = number of cards dealt; draw1/draw2 = exchange rounds; declare = secret declarations.
+  | "2nd" | "3rd" | "4th" | "5th" | "draw1" | "draw2" | "declare"
+  | "showdown" | "complete";
 
 export interface SeatView {
   seat: number;
@@ -103,8 +166,15 @@ export interface SeatView {
   avatar: string | null; // an AVATAR_EMOJIS entry or "1".."99"
   /** Host override of the action timer for this player: null = table default, 0 = no limit. */
   timeLimitSec: number | null;
-  /** Own cards always; others only when revealed at showdown. Null = hidden or no cards. */
+  /** Face-down cards: own always; others only when revealed at showdown. Null = hidden or no cards. */
   holeCards: Card[] | null;
+  /** Number of face-down cards this player holds (so others can draw card backs). */
+  holeCount: number;
+  /** Stud: face-up cards, visible to everyone. Empty for board games. */
+  upCards: Card[];
+  /** Stud declare: null until everyone has declared, then each live player's choice. */
+  declared: Declaration | null;
+  hasDeclared: boolean;
   lastAction: string | null; // e.g. "Raise to 12", "Check", "Fold"
 }
 
@@ -128,6 +198,8 @@ export interface HandView {
   board: Card[];
   pots: PotView[];
   toActSeat: number | null;
+  /** What the player to act is doing: betting, exchanging (stud) or declaring (stud). */
+  stage: "bet" | "exchange" | "declare" | null;
   actionDeadline: number | null; // epoch ms
   /** Present only for the viewer, only when it is the viewer's turn. */
   legal: LegalActions | null;
