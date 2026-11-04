@@ -1,0 +1,78 @@
+name: Deploy
+
+# The only supported way to deploy. Every deploy is a run of this workflow, so the Actions tab is the deploy history.
+# See docs/PROVENANCE.md.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits instead of cancelling a deploy that is already in flight.
+concurrency:
+  group: deploy-mochapoker
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: npm }
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:all
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: npm }
+      - name: Check the deploy token is set
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then echo "FLY_API_TOKEN is not set. See docs/PROVENANCE.md (owner setup)."; exit 1; fi
+      - run: npm ci
+      - name: Build the web app and record its manifest
+        run: |
+          npm run build -w @homegame/web
+          node scripts/web-manifest.mjs --out web-manifest.json
+          cat web-manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-manifest-${{ github.sha }}
+          path: web-manifest.json
+          if-no-files-found: error
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+      - name: Deploy to Fly.io (remote build from this commit)
+        run: |
+          flyctl deploy --remote-only --ha=false \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      - name: Check the live site runs exactly what CI built
+        run: node scripts/verify-deploy.mjs https://mochapoker.fly.dev ${{ github.sha }} web-manifest.json
+      - name: Write the deploy record
+        if: success()
+        run: |
+          hash=$(node -p "require('./web-manifest.json').manifestHash")
+          {
+            echo "## Deploy record"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Commit | [\`${GITHUB_SHA}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |"
+            echo "| Deployed at (UTC) | $(date -u +%Y-%m-%dT%H:%M:%SZ) |"
+            echo "| Web manifestHash | \`${hash}\` |"
+            echo "| Triggered by | ${GITHUB_EVENT_NAME} (${GITHUB_ACTOR}) |"
+            echo "| Run | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |"
+            echo ""
+            echo "The live site's /version was fetched after the deploy and matched this commit and manifest."
+            echo "Check it yourself with \`npm run check-site\`."
+          } >> "$GITHUB_STEP_SUMMARY"

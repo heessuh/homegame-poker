@@ -16,6 +16,7 @@ import { TournamentHud } from "./Tournament";
 import { Avatar, AvatarPicker, Modal, MoneyInput, Wordmark, loadAvatar, saveAvatar } from "./ui";
 import { newClientSeed, rememberSeed } from "./fairness";
 import { FairWatch } from "./FairBanner";
+import { BuildInfo } from "./BuildInfo";
 import { fmt, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
@@ -84,6 +85,7 @@ function Landing() {
         <input placeholder="Table code" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="off" />
         <button className="btn" type="submit" disabled={!code.trim()}>Join table</button>
       </form>
+      <BuildInfo />
     </main>
   );
 }

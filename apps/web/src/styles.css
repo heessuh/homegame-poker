@@ -524,3 +524,6 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 .ledger-details pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
 .ledger-hash { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .ledger-banner { display: flex; gap: 12px; align-items: center; justify-content: space-between; background: #7a1f1a; color: #fff; padding: 8px 14px; font-size: 13px; }
+
+.buildinfo { margin-top: 24px; font-size: 12px; opacity: 0.6; text-align: center; }
+.buildinfo a { color: inherit; }
