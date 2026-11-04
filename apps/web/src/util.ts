@@ -91,5 +91,5 @@ export const STUD_STREETS: Partial<Record<Phase, string>> = {
 
 /** "Pot-Limit Omaha Hi/Lo (8 or better)" -> "Pot-Limit Omaha Hi/Lo". */
 export function shortGame(name: string): string {
-  return name.replace(/s*(.*?)/g, "").trim();
+  return name.replace(/\s*\(.*?\)/g, "").trim();
 }

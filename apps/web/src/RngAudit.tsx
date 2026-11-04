@@ -176,7 +176,7 @@ function Luck({ luck }: { luck: LuckReport }) {
       <p className="lens-says">
         {luck.pending > 0 && <><b>Still computing {num(luck.pending)} {luck.pending === 1 ? "hand" : "hands"}.</b> The numbers below cover the hands finished so far and will update by themselves.<br /></>}
         Every hand reveals its deck, so we can rebuild what each player was dealt, folded hands included, and ask whose hand would have been best if
-        nobody had folded. With 6 players dealt in, each should be best about 1 hand in 6; that is the “expected” number. Real results wander around it,
+        nobody had folded. With 6 players dealt in, for example, each should be best about 1 hand in 6. Added up over the hands each player was dealt into, that is the “expected” number. Real results wander around it,
         and with only a few dozen hands they wander a lot, so one player being ahead for a while is normal. Only totals are shown here, never anyone’s cards.
       </p>
       {none ? (
