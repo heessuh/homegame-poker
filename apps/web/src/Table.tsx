@@ -1,30 +1,23 @@
-import { useEffect, useState } from "react";
 import { VARIANTS } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack, CardRow } from "./CardView";
 import { CardFace } from "./CardView";
 import { fmt, totalPot } from "./util";
-
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
-  }, [active]);
-  return now;
-}
+import { Avatar, useNow } from "./ui";
+import type { Send } from "./App";
 
 interface Props {
   view: TableView;
   onSit: (seat: number) => void;
+  onMe: () => void;
+  send: Send;
 }
 
-export function Table({ view, onSit }: Props) {
+export function Table({ view, onSit, onMe, send }: Props) {
   const { config, hand, you } = view;
   const n = config.maxSeats;
   const anchor = you.seat ?? 0;
-  const hasTimer = !!(hand?.actionDeadline && hand.toActSeat !== null && config.actionTimeoutSec > 0);
+  const hasTimer = !!(hand?.actionDeadline && hand.toActSeat !== null);
   const now = useNow(hasTimer);
   const holeCount = VARIANTS[config.variant].holeCards;
   const winnersByPlayer = new Map<string, WinnerView[]>();
@@ -66,11 +59,21 @@ export function Table({ view, onSit }: Props) {
               })}
             </div>
             <div className="phase">Hand #{hand.handNumber} · {hand.phase}</div>
+            {view.pendingAward && (
+              <div className="await">
+                {you.isHost ? `Award the pot (${fmt(view.pendingAward.amount)})` : `Waiting for the dealer to award the pot (${fmt(view.pendingAward.amount)})`}
+              </div>
+            )}
           </>
         ) : (
           <div className="waiting">
             <div className="big">{view.status === "paused" ? "Paused" : "Waiting for the game to start"}</div>
             <div className="muted">{VARIANTS[config.variant].name} · {config.smallBlind}/{config.bigBlind}</div>
+            {view.pendingAward && (
+              <div className="await">
+                {you.isHost ? `Award the pot (${fmt(view.pendingAward.amount)})` : `Waiting for the dealer to award the pot (${fmt(view.pendingAward.amount)})`}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -99,7 +102,10 @@ export function Table({ view, onSit }: Props) {
             style={style}
             toAct={hand?.toActSeat === i}
             deadline={hand?.actionDeadline ?? null}
-            timeoutSec={config.actionTimeoutSec}
+            timeoutSec={s.timeLimitSec ?? config.actionTimeoutSec}
+            isHost={you.isHost}
+            send={send}
+            onMe={onMe}
             now={now}
             holeCount={holeCount}
             wins={winnersByPlayer.get(s.playerId)}
@@ -115,7 +121,7 @@ export function Table({ view, onSit }: Props) {
 function SeatBlock(props: {
   s: SeatView; isMe: boolean; style: React.CSSProperties; toAct: boolean; deadline: number | null;
   timeoutSec: number; now: number; holeCount: number; wins?: WinnerView[]; showdownDim: boolean;
-  betPos: { x: number; y: number };
+  betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void;
 }) {
   const { s, isMe, toAct, wins } = props;
   const size = isMe ? "lg" : "sm";
@@ -123,6 +129,7 @@ function SeatBlock(props: {
     ? Math.max(0, Math.min(1, (props.deadline - props.now) / (props.timeoutSec * 1000)))
     : null;
   const secs = frac !== null && props.deadline ? Math.max(0, Math.ceil((props.deadline - props.now) / 1000)) : null;
+  const hostCtl = props.isHost && toAct;
   const winTotal = wins?.reduce((a, w) => a + w.amount, 0) ?? 0;
   const cls = ["seat", isMe ? "me" : "", toAct ? "toact" : "", s.folded ? "folded" : "", s.sittingOut ? "out" : "",
     !s.connected ? "offline" : "", wins ? "winner" : "", props.showdownDim && !wins ? "loser" : ""].filter(Boolean).join(" ");
@@ -142,8 +149,8 @@ function SeatBlock(props: {
     <>
       <div className={cls} style={props.style}>
         {cards}
-        <div className="plate">
-          <div className="name">{s.name}{isMe ? " (you)" : ""}</div>
+        <div className={`plate ${isMe ? "clickable" : ""}`} onClick={isMe ? props.onMe : undefined} title={isMe ? "Change avatar" : undefined}>
+          <div className="name"><Avatar a={s.avatar} />{s.avatar ? " " : ""}{s.name}{isMe ? " (you)" : ""}</div>
           <div className="stack">{fmt(s.stack)}</div>
           {frac !== null && (
             <div className="timer" role="progressbar" aria-valuenow={secs ?? 0}>
@@ -155,6 +162,7 @@ function SeatBlock(props: {
             {s.folded && <span className="tag">Folded</span>}
             {s.sittingOut && <span className="tag">Sitting out</span>}
             {!s.connected && <span className="tag warn">Offline</span>}
+            {s.timeLimitSec !== null && <span className="tag timelim">⏱ {s.timeLimitSec === 0 ? "off" : `${s.timeLimitSec}s`}</span>}
           </div>
         </div>
         {s.isButton && <span className="dealer" title="Dealer">D</span>}
@@ -163,9 +171,15 @@ function SeatBlock(props: {
             +{fmt(winTotal)}{wins[0]?.handName ? ` · ${wins[0].handName}` : ""}
           </div>
         ) : s.lastAction ? (
-          <div className="seat-note">{s.lastAction}</div>
+          <div className={`seat-note ${hostCtl ? "shift" : ""}`}>{s.lastAction}</div>
         ) : null}
         {secs !== null && <div className="secs">{secs}s</div>}
+        {hostCtl && (
+          <div className="hostctl">
+            {props.deadline !== null && <button onClick={() => props.send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}
+            <button className="danger" onClick={() => props.send("host:forceTimeout", { playerId: s.playerId })}>Time out</button>
+          </div>
+        )}
       </div>
       {s.bet > 0 && (
         <div className="bet" style={{ left: `${props.betPos.x}%`, top: `${props.betPos.y}%` }}>

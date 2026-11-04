@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import type { Socket } from "socket.io-client";
-import { DEFAULT_CONFIG } from "@homegame/engine";
+import { DEFAULT_CONFIG, VARIANTS } from "@homegame/engine";
+import type { VariantId } from "@homegame/engine";
 import type { ClientToServerEvents, ServerToClientEvents, TableView } from "@homegame/engine";
 import { Table } from "./Table";
 import { ActionBar } from "./ActionBar";
@@ -9,6 +10,9 @@ import { SidePanel } from "./SidePanel";
 import type { Tab } from "./SidePanel";
 import { FIXTURE_LABELS, makeFixtures } from "./mock";
 import type { FixtureId } from "./mock";
+import { AwardPanel } from "./Award";
+import { TournamentHud } from "./Tournament";
+import { Avatar, AvatarPicker, Modal, loadAvatar, saveAvatar } from "./ui";
 import { fmt, getPlayerToken, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
@@ -29,6 +33,8 @@ export function App() {
   const tableId = useHash();
   const [name, setName] = useState(() => storeGet("hg.name") ?? "");
   const [joined, setJoined] = useState(() => !!storeGet("hg.name"));
+  const [avatar, setAvatar] = useState<string | null>(() => loadAvatar());
+  const changeAvatar = useCallback((a: string | null) => { saveAvatar(a); setAvatar(a); }, []);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number>();
 
@@ -39,17 +45,19 @@ export function App() {
   }, []);
 
   let body: React.ReactNode;
-  if (MOCK) body = <MockRoom showToast={showToast} />;
+  if (MOCK) body = <MockRoom showToast={showToast} avatar={avatar} onAvatar={changeAvatar} />;
   else if (!tableId) body = <Landing />;
   else if (!joined || !name.trim()) {
     body = (
       <JoinForm
         tableId={tableId}
         initial={name}
+        avatar={avatar}
+        onAvatar={changeAvatar}
         onJoin={(n) => { storeSet("hg.name", n); setName(n); setJoined(true); }}
       />
     );
-  } else body = <LiveRoom tableId={tableId} name={name.trim()} showToast={showToast} />;
+  } else body = <LiveRoom tableId={tableId} name={name.trim()} avatar={avatar} onAvatar={changeAvatar} showToast={showToast} />;
 
   return (
     <>
@@ -77,8 +85,9 @@ function Landing() {
   );
 }
 
-function JoinForm({ tableId, initial, onJoin }: { tableId: string; initial: string; onJoin: (n: string) => void }) {
+function JoinForm({ tableId, initial, avatar, onAvatar, onJoin }: { tableId: string; initial: string; avatar: string | null; onAvatar: (a: string | null) => void; onJoin: (n: string) => void }) {
   const [n, setN] = useState(initial);
+  const [picking, setPicking] = useState(false);
   return (
     <main className="landing">
       <h1>Join table <code>{tableId}</code></h1>
@@ -86,12 +95,18 @@ function JoinForm({ tableId, initial, onJoin }: { tableId: string; initial: stri
         <input placeholder="Your name" value={n} maxLength={20} autoFocus onChange={(e) => setN(e.target.value)} />
         <button className="btn call" type="submit" disabled={!n.trim()}>Join</button>
       </form>
+      <button type="button" className="btn avbtn" onClick={() => setPicking(true)}>
+        {avatar ? <><Avatar a={avatar} /> Change avatar</> : "Pick an avatar (optional)"}
+      </button>
+      {picking && <AvatarPicker current={avatar} onPick={onAvatar} onClose={() => setPicking(false)} />}
       <a href="#" className="muted" onClick={(e) => { e.preventDefault(); location.hash = ""; }}>Back</a>
     </main>
   );
 }
 
-function LiveRoom({ tableId, name, showToast }: { tableId: string; name: string; showToast: (m: string) => void }) {
+function LiveRoom({ tableId, name, avatar, onAvatar, showToast }: { tableId: string; name: string; avatar: string | null; onAvatar: (a: string | null) => void; showToast: (m: string) => void }) {
+  const avatarRef = useRef(avatar);
+  avatarRef.current = avatar;
   const [view, setView] = useState<TableView | null>(null);
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
@@ -100,7 +115,7 @@ function LiveRoom({ tableId, name, showToast }: { tableId: string; name: string;
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io();
     socketRef.current = socket;
     const token = getPlayerToken();
-    const doJoin = () => { setConnected(true); socket.emit("join", { tableId, name, playerToken: token }); };
+    const doJoin = () => { setConnected(true); socket.emit("join", { tableId, name, playerToken: token, avatar: avatarRef.current }); };
     socket.on("connect", doJoin);
     socket.on("disconnect", () => setConnected(false));
     socket.on("state", setView);
@@ -113,10 +128,10 @@ function LiveRoom({ tableId, name, showToast }: { tableId: string; name: string;
   }, []);
 
   if (!view) return <main className="landing"><p className="muted">{connected ? "Joining table…" : "Connecting…"}</p></main>;
-  return <Room view={view} send={send} connected={connected} />;
+  return <Room view={view} send={send} connected={connected} avatar={avatar} onAvatar={onAvatar} />;
 }
 
-function MockRoom({ showToast }: { showToast: (m: string) => void }) {
+function MockRoom({ showToast, avatar, onAvatar }: { showToast: (m: string) => void; avatar: string | null; onAvatar: (a: string | null) => void }) {
   const [fixtures, setFixtures] = useState<Record<FixtureId, TableView> | null>(null);
   const [id, setId] = useState<FixtureId>("plo5-turn");
   useEffect(() => { void makeFixtures().then(setFixtures); }, []);
@@ -124,7 +139,7 @@ function MockRoom({ showToast }: { showToast: (m: string) => void }) {
   if (!fixtures) return <main className="landing"><p className="muted">Loading fixtures…</p></main>;
   return (
     <>
-      <Room view={fixtures[id]} send={send} connected />
+      <Room view={fixtures[id]} send={send} connected avatar={avatar} onAvatar={onAvatar} />
       <select className="mockpick" value={id} onChange={(e) => setId(e.target.value as FixtureId)} aria-label="Mock fixture">
         {(Object.keys(FIXTURE_LABELS) as FixtureId[]).map((k) => <option key={k} value={k}>{FIXTURE_LABELS[k]}</option>)}
       </select>
@@ -132,14 +147,16 @@ function MockRoom({ showToast }: { showToast: (m: string) => void }) {
   );
 }
 
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+function FixedStack(props: { title: string; stack: number; cta: string; blocked?: string; onConfirm: () => void; onClose: () => void }) {
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
-        {children}
+    <Modal title={props.title} onClose={props.onClose}>
+      <p className="startstack">Starting stack: <b>{fmt(props.stack)}</b></p>
+      {props.blocked && <p className="note">{props.blocked}</p>}
+      <div className="btn-row">
+        <button className="btn" onClick={props.onClose}>Cancel</button>
+        <button className="btn call" disabled={!!props.blocked} onClick={() => { props.onConfirm(); props.onClose(); }}>{props.cta}</button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -159,13 +176,19 @@ function AmountPrompt(props: { title: string; min: number; max: number; cta: str
   );
 }
 
-function Room({ view, send, connected }: { view: TableView; send: Send; connected: boolean }) {
+function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; send: Send; connected: boolean; avatar: string | null; onAvatar: (a: string | null) => void }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("log");
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [rebuy, setRebuy] = useState(false);
+  const [pickAvatar, setPickAvatar] = useState(false);
   const me = view.you.seat !== null ? view.seats[view.you.seat] : null;
   const cfg = view.config ?? DEFAULT_CONFIG;
+  const isTourney = cfg.mode === "tournament";
+  const startStack = view.tournament?.startingStack ?? cfg.tournament.startingStack;
+  const lateClosed = view.tournament ? view.tournament.status === "finished" || (view.tournament.status === "running" && !view.tournament.lateRegOpen) : false;
+  const changeAvatar = (a: string | null) => { onAvatar(a); send("setAvatar", { avatar: a }); };
+  const pendingVariant = view.pendingConfig && view.pendingConfig.variant !== cfg.variant ? view.pendingConfig.variant : null;
   const copy = () => {
     const url = location.origin + location.pathname + "#" + view.tableId;
     void navigator.clipboard?.writeText(url).catch(() => undefined);
@@ -178,6 +201,13 @@ function Room({ view, send, connected }: { view: TableView; send: Send; connecte
           <b>Table</b> <code>{view.tableId}</code>
           <span className={`pill ${view.status}`}>{view.status}</span>
           {!connected && <span className="pill warn">reconnecting…</span>}
+          {view.you.isHost ? (
+            <select className="gamepick" value={cfg.variant} aria-label="Game"
+              onChange={(e) => send("host:config", { variant: e.target.value as VariantId })}>
+              {Object.values(VARIANTS).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          ) : <span className="gamename">{VARIANTS[cfg.variant].name}</span>}
+          {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant].name}</span>}
         </div>
         <div className="top-actions">
           <button className="btn small" onClick={copy}>Copy link</button>
@@ -187,13 +217,16 @@ function Room({ view, send, connected }: { view: TableView; send: Send; connecte
 
       <div className="main">
         <section className="stage">
-          <Table view={view} onSit={setSitSeat} />
+          <TournamentHud view={view} send={send} />
+          <Table view={view} onSit={setSitSeat} onMe={() => setPickAvatar(true)} send={send} />
+          {view.you.isHost && view.pendingAward && <AwardPanel view={view} pa={view.pendingAward} send={send} />}
           <ActionBar view={view} onAction={(a) => send("action", a)} />
           {me && (
             <div className="controls">
               <button className="btn small" onClick={() => send("stand")}>Stand up</button>
               <button className="btn small" onClick={() => send("sitOut", { sittingOut: !me.sittingOut })}>{me.sittingOut ? "Sit in" : "Sit out"}</button>
-              <button className="btn small" onClick={() => setRebuy(true)}>Rebuy</button>
+              <button className="btn small" onClick={() => setPickAvatar(true)}>Avatar</button>
+              {!isTourney && <button className="btn small" onClick={() => setRebuy(true)}>Rebuy</button>}
             </div>
           )}
         </section>
@@ -202,11 +235,17 @@ function Room({ view, send, connected }: { view: TableView; send: Send; connecte
         </aside>
       </div>
 
-      {sitSeat !== null && (
+      {sitSeat !== null && isTourney && (
+        <FixedStack title={`Sit at seat ${sitSeat + 1}`} stack={startStack} cta="Sit down"
+          blocked={lateClosed ? "Registration is closed." : undefined}
+          onConfirm={() => send("sit", { seat: sitSeat, buyIn: startStack })} onClose={() => setSitSeat(null)} />
+      )}
+      {sitSeat !== null && !isTourney && (
         <AmountPrompt title={`Sit at seat ${sitSeat + 1}`} min={cfg.minBuyIn} max={cfg.maxBuyIn} cta="Sit down"
           onConfirm={(n) => send("sit", { seat: sitSeat, buyIn: n })} onClose={() => setSitSeat(null)} />
       )}
-      {rebuy && (
+      {pickAvatar && <AvatarPicker current={me?.avatar ?? avatar} onPick={changeAvatar} onClose={() => setPickAvatar(false)} />}
+      {rebuy && !isTourney && (
         <AmountPrompt title="Rebuy" min={cfg.minBuyIn} max={cfg.maxBuyIn} cta="Rebuy"
           onConfirm={(n) => send("rebuy", { amount: n })} onClose={() => setRebuy(false)} />
       )}

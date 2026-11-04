@@ -138,7 +138,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
       const table = getOrCreateTable(tableId);
       let playerId: string;
       try {
-        playerId = table.join(p.playerToken, p.name);
+        playerId = table.join(p.playerToken, p.name, p.avatar);
       } catch (e) {
         if (!existed) dropTable(tableId);
         throw e;
@@ -151,6 +151,12 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
       set.add(socket);
       void socket.join(tableId);
       broadcast(tableId);
+    }));
+
+    on("setAvatar", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.setAvatar(playerId, p.avatar);
     }));
 
     on("sit", handle((raw) => {
@@ -221,6 +227,48 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
       const { table, playerId } = ctx();
       if (typeof p.playerId !== "string") throw new UserError("Invalid request.");
       table.hostAdjustStack(playerId, p.playerId, int(p.delta, "Adjustment"));
+    }));
+
+    on("host:award", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostAward(playerId, p.awards);
+    }));
+
+    on("host:transfer", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostTransfer(playerId, p.fromPlayerId, p.toPlayerId, p.amount);
+    }));
+
+    on("host:playerTimer", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostPlayerTimer(playerId, p.playerId, p.seconds);
+    }));
+
+    on("host:addTime", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostAddTime(playerId, p.playerId, p.seconds);
+    }));
+
+    on("host:forceTimeout", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostForceTimeout(playerId, p.playerId);
+    }));
+
+    on("host:tournamentLevel", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostTournamentLevel(playerId, p.delta);
+    }));
+
+    on("host:tournamentClock", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostTournamentClock(playerId, p.addMs);
     }));
 
     socket.on("disconnect", () => {

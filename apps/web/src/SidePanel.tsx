@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { VARIANTS } from "@homegame/engine";
-import type { TableConfig, TableView, VariantId } from "@homegame/engine";
+import type { SeatView, TableConfig, TableView, VariantId } from "@homegame/engine";
 import { CardRow } from "./CardView";
 import type { Send } from "./App";
 import { fmt, sha256Hex } from "./util";
+import { Who, avatarOf } from "./ui";
+import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
-export type Tab = "log" | "ledger" | "last" | "host";
+export type Tab = "log" | "ledger" | "last" | "standings" | "host";
 
 export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: Send; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["last", "Last hand"]];
+  if (view.tournament) tabs.splice(1, 0, ["standings", "Standings"]);
   if (view.you.isHost) tabs.push(["host", "Host"]);
   return (
     <div className="panel">
@@ -20,6 +23,7 @@ export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: 
       <div className="tabbody">
         {tab === "log" && <Log lines={view.log} />}
         {tab === "ledger" && <Ledger view={view} />}
+        {tab === "standings" && <Standings view={view} />}
         {tab === "last" && <LastHand view={view} />}
         {tab === "host" && view.you.isHost && <HostPanel view={view} send={send} />}
       </div>
@@ -47,7 +51,7 @@ function Ledger({ view }: { view: TableView }) {
       <tbody>
         {view.ledger.map((e) => (
           <tr key={e.playerId}>
-            <td>{e.name}</td><td>{fmt(e.buyIns)}</td><td>{fmt(e.cashOuts)}</td><td>{fmt(e.stack)}</td>
+            <td><Who avatar={avatarOf(view, e.playerId)} name={e.name} /></td><td>{fmt(e.buyIns)}</td><td>{fmt(e.cashOuts)}</td><td>{fmt(e.stack)}</td>
             <td className={e.net > 0 ? "pos" : e.net < 0 ? "neg" : ""}>{e.net > 0 ? "+" : ""}{fmt(e.net)}</td>
           </tr>
         ))}
@@ -98,8 +102,11 @@ function LastHand({ view }: { view: TableView }) {
   );
 }
 
-function sameConfig(a: TableConfig, b: TableConfig) {
-  return JSON.stringify(a) === JSON.stringify(b);
+const TIMER_OPTIONS = [15, 30, 45, 60, 90, 120, 180];
+
+function cashPart(c: TableConfig) {
+  const { mode: _m, tournament: _t, ...rest } = c; // eslint-disable-line @typescript-eslint/no-unused-vars
+  return rest;
 }
 
 function HostPanel({ view, send }: { view: TableView; send: Send }) {
@@ -110,12 +117,21 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
   const num = (k: keyof TableConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setDraft({ ...draft, [k]: Number(e.target.value) });
   const maxPlayers = VARIANTS[draft.variant].maxPlayers;
-  const players = view.seats.filter((s) => s !== null);
+  const players = view.seats.filter((s): s is SeatView => s !== null);
   const [delta, setDelta] = useState(100);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [moveAmt, setMoveAmt] = useState(10);
   const apply = () => {
-    const cfg = { ...draft, maxSeats: Math.max(2, Math.min(maxPlayers, draft.maxSeats)) };
+    const cfg = { ...cashPart(draft), maxSeats: Math.max(2, Math.min(maxPlayers, draft.maxSeats)) };
     send("host:config", cfg);
   };
+  const running = view.tournament?.status === "running";
+  const modeSame = draft.mode === source.mode && (draft.mode === "cash" || JSON.stringify(draft.tournament) === JSON.stringify(source.tournament));
+  const actingId = view.hand?.toActSeat != null ? view.seats[view.hand.toActSeat]?.playerId : null;
+  const fromId = players.some((p) => p.playerId === from) ? from : "";
+  const toId = players.some((p) => p.playerId === to) ? to : "";
+  const canMove = fromId && toId && fromId !== toId && Number.isInteger(moveAmt) && moveAmt > 0;
   return (
     <div className="host">
       <div className="btn-row wrap">
@@ -138,9 +154,53 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         <label>Action timer (sec, 0 = off)<input type="number" min={0} value={draft.actionTimeoutSec} onChange={num("actionTimeoutSec")} /></label>
         <label>Min buy-in<input type="number" min={1} value={draft.minBuyIn} onChange={num("minBuyIn")} /></label>
         <label>Max buy-in<input type="number" min={1} value={draft.maxBuyIn} onChange={num("maxBuyIn")} /></label>
+        <label className="full">Pot awarding
+          <select value={draft.awardMode} onChange={(e) => setDraft({ ...draft, awardMode: e.target.value as TableConfig["awardMode"] })}>
+            <option value="auto">Automatic</option>
+            <option value="host">Dealer decides</option>
+          </select>
+        </label>
       </div>
-      <button className="btn small" disabled={sameConfig(draft, source)} onClick={apply}>Apply settings</button>
+      <button className="btn small" disabled={JSON.stringify(cashPart(draft)) === JSON.stringify(cashPart(source))} onClick={apply}>Apply settings</button>
       <p className="muted small">Applies next hand if one is in progress.</p>
+
+      <h4>Mode</h4>
+      <div className="form">
+        <label className="full">Game mode
+          <select value={draft.mode} disabled={running} onChange={(e) => setDraft({ ...draft, mode: e.target.value as TableConfig["mode"] })}>
+            <option value="cash">Cash</option>
+            <option value="tournament">Tournament</option>
+          </select>
+        </label>
+      </div>
+      {draft.mode === "tournament" && (running
+        ? <p className="muted small">The tournament is running; settings are locked.</p>
+        : <TournamentEditor value={draft.tournament} onChange={(t) => setDraft({ ...draft, tournament: t })} />)}
+      {!running && (
+        <button className="btn small" disabled={modeSame || (draft.mode === "tournament" && !tournamentValid(draft.tournament))}
+          onClick={() => send("host:config", draft.mode === "tournament" ? { mode: "tournament", tournament: draft.tournament } : { mode: "cash" })}>
+          Apply
+        </button>
+      )}
+
+      <h4>Move chips</h4>
+      <div className="form">
+        <label>From
+          <select value={fromId} onChange={(e) => setFrom(e.target.value)}>
+            <option value="">Choose…</option>
+            {players.map((p) => <option key={p.playerId} value={p.playerId}>{p.name} ({fmt(p.stack)})</option>)}
+          </select>
+        </label>
+        <label>To
+          <select value={toId} onChange={(e) => setTo(e.target.value)}>
+            <option value="">Choose…</option>
+            {players.map((p) => <option key={p.playerId} value={p.playerId}>{p.name} ({fmt(p.stack)})</option>)}
+          </select>
+        </label>
+        <label>Amount<input type="number" min={1} value={moveAmt} onChange={(e) => setMoveAmt(Math.floor(Number(e.target.value)))} /></label>
+        <label className="end"><button className="btn small" disabled={!canMove}
+          onClick={() => send("host:transfer", { fromPlayerId: fromId, toPlayerId: toId, amount: moveAmt })}>Move chips</button></label>
+      </div>
 
       <h4>Players</h4>
       <div className="adjust">
@@ -148,14 +208,30 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         <input type="number" min={1} value={delta} onChange={(e) => setDelta(Math.max(1, Number(e.target.value)))} />
       </div>
       {players.length === 0 && <p className="muted">Nobody is seated.</p>}
-      {players.map((s) => s && (
+      {players.map((s) => (
         <div key={s.playerId} className="prow">
-          <span className="pname">{s.name} <span className="muted">{fmt(s.stack)}</span></span>
+          <span className="pname"><Who avatar={s.avatar} name={s.name} /> <span className="muted">{fmt(s.stack)}</span></span>
           <button className="btn tiny" title="Remove chips" onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: -delta })}>−</button>
           <button className="btn tiny" title="Add chips" onClick={() => send("host:adjustStack", { playerId: s.playerId, delta })}>+</button>
           {s.playerId !== view.you.playerId && (
             <button className="btn tiny danger" onClick={() => { if (confirm(`Kick ${s.name}?`)) send("host:kick", { playerId: s.playerId }); }}>Kick</button>
           )}
+          <div className="psub">
+            <label>⏱
+              <select value={s.timeLimitSec === null ? "" : String(s.timeLimitSec)} aria-label={`Timer for ${s.name}`}
+                onChange={(e) => send("host:playerTimer", { playerId: s.playerId, seconds: e.target.value === "" ? null : Number(e.target.value) })}>
+                <option value="">Table default</option>
+                <option value="0">No limit</option>
+                {TIMER_OPTIONS.map((t) => <option key={t} value={t}>{t} s</option>)}
+              </select>
+            </label>
+            {actingId === s.playerId && (
+              <>
+                {view.hand?.actionDeadline != null && <button className="btn tiny" onClick={() => send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}
+                <button className="btn tiny danger" onClick={() => send("host:forceTimeout", { playerId: s.playerId })}>Time out now</button>
+              </>
+            )}
+          </div>
         </div>
       ))}
     </div>

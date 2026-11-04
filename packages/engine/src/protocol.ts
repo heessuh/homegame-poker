@@ -12,6 +12,46 @@ export interface TableConfig {
   actionTimeoutSec: number; // 0 = no timer
   minBuyIn: number;
   maxBuyIn: number;
+  /** "auto": pots go to the best hands. "host": the hand ends with the pot held until the host awards it. */
+  awardMode: "auto" | "host";
+  mode: "cash" | "tournament";
+  tournament: TournamentConfig;
+}
+
+export interface BlindLevel {
+  smallBlind: number;
+  bigBlind: number;
+  minutes: number; // 1..120
+}
+
+export interface TournamentConfig {
+  startingStack: number;
+  levels: BlindLevel[]; // 1..40; after the last level, the last level repeats
+  /** Players may still sit down until this many levels have finished (0 = only before the start). */
+  lateRegLevels: number;
+}
+
+export const TOURNAMENT_PRESETS: Record<"turbo" | "standard" | "deep", { name: string; config: TournamentConfig }> = {
+  turbo: { name: "Turbo (8-minute levels)", config: { startingStack: 3000, lateRegLevels: 2, levels: blindLadder(8) } },
+  standard: { name: "Standard (15-minute levels)", config: { startingStack: 5000, lateRegLevels: 3, levels: blindLadder(15) } },
+  deep: { name: "Deep stack (20-minute levels)", config: { startingStack: 10000, lateRegLevels: 4, levels: blindLadder(20) } },
+};
+
+function blindLadder(minutes: number): BlindLevel[] {
+  const bb = [50, 100, 150, 200, 300, 400, 600, 800, 1000, 1500, 2000, 3000, 4000, 6000, 8000, 10000, 15000, 20000];
+  return bb.map((b) => ({ smallBlind: b / 2, bigBlind: b, minutes }));
+}
+
+/** Picture badges a player can show next to their name. Numbers "1".."99" are also allowed. */
+export const AVATAR_EMOJIS = [
+  "🐼", "🐴", "🦁", "🐯", "🐻", "🐨", "🦊", "🐺", "🐸", "🐵", "🐧", "🦉", "🦅", "🐬", "🦈", "🐙",
+  "🐢", "🐍", "🐉", "🦄", "🐮", "🐷", "🐔", "🐰", "🐱", "🐶", "🦓", "🦒", "🐘", "🦘",
+  "♠️", "♥️", "♦️", "♣️", "🃏", "🎲", "🎯", "🏆", "👑", "💎", "🔥", "⚡", "🌙", "⭐", "🍀", "🌵",
+  "🍺", "🍷", "☕", "🍕", "🌮", "🎸", "⚽", "🏀", "🎱", "🚀", "😎", "🤠", "🥷", "🤖", "👻", "💀",
+] as const;
+
+export function isValidAvatar(a: string): boolean {
+  return (AVATAR_EMOJIS as readonly string[]).includes(a) || /^[1-9][0-9]?$/.test(a);
 }
 
 export const DEFAULT_CONFIG: TableConfig = {
@@ -22,6 +62,9 @@ export const DEFAULT_CONFIG: TableConfig = {
   actionTimeoutSec: 30,
   minBuyIn: 40,
   maxBuyIn: 400,
+  awardMode: "auto",
+  mode: "cash",
+  tournament: TOURNAMENT_PRESETS.standard.config,
 };
 
 /** "raise" covers both bet and raise; amount is the player's TOTAL contribution on this street after the action. */
@@ -57,6 +100,9 @@ export interface SeatView {
   sittingOut: boolean;
   connected: boolean;
   isButton: boolean;
+  avatar: string | null; // an AVATAR_EMOJIS entry or "1".."99"
+  /** Host override of the action timer for this player: null = table default, 0 = no limit. */
+  timeLimitSec: number | null;
   /** Own cards always; others only when revealed at showdown. Null = hidden or no cards. */
   holeCards: Card[] | null;
   lastAction: string | null; // e.g. "Raise to 12", "Check", "Fold"
@@ -108,6 +154,38 @@ export interface HandRecord {
   summary: string[];
 }
 
+export interface PendingAward {
+  handNumber: number;
+  /** Total chips waiting for the host to hand out. */
+  amount: number;
+  /** Everyone dealt into the hand; the host may award to any of them. */
+  candidatePlayerIds: string[];
+  /** What automatic awarding would have paid, shown as a starting point. */
+  suggested: { playerId: string; amount: number }[];
+}
+
+export interface TournamentStanding {
+  playerId: string;
+  name: string;
+  stack: number;
+  place: number | null; // finishing place once eliminated (1 = winner)
+}
+
+export interface TournamentView {
+  status: "registering" | "running" | "finished";
+  levelIndex: number; // 0-based
+  level: BlindLevel;
+  nextLevel: BlindLevel | null;
+  /** Epoch ms when the current level ends; null while paused or not running. */
+  levelEndsAt: number | null;
+  /** Remaining ms in the level, kept current while paused. */
+  levelRemainingMs: number;
+  startingStack: number;
+  lateRegOpen: boolean;
+  playersLeft: number;
+  standings: TournamentStanding[]; // live players by stack, then eliminated by place
+}
+
 export interface TableView {
   tableId: string;
   hostPlayerId: string | null;
@@ -121,11 +199,15 @@ export interface TableView {
   lastHand: HandRecord | null;
   ledger: LedgerEntry[];
   log: string[]; // most recent last, capped
+  /** Set while awardMode is "host" and a finished hand's pot is waiting to be awarded. Next hand waits for it. */
+  pendingAward: PendingAward | null;
+  tournament: TournamentView | null; // null in cash mode
 }
 
 // ---- Socket.IO events ----
 export interface ClientToServerEvents {
-  join: (p: { tableId: string; name: string; playerToken: string }) => void;
+  join: (p: { tableId: string; name: string; playerToken: string; avatar?: string | null }) => void;
+  setAvatar: (p: { avatar: string | null }) => void;
   sit: (p: { seat: number; buyIn: number }) => void;
   stand: () => void; // cash out at end of current hand
   sitOut: (p: { sittingOut: boolean }) => void;
@@ -136,6 +218,16 @@ export interface ClientToServerEvents {
   "host:config": (p: Partial<TableConfig>) => void;
   "host:kick": (p: { playerId: string }) => void;
   "host:adjustStack": (p: { playerId: string; delta: number }) => void; // between hands, recorded in ledger
+  /** Hand out a pending pot. Amounts are non-negative integers that must sum to pendingAward.amount. */
+  "host:award": (p: { awards: { playerId: string; amount: number }[] }) => void;
+  /** Move chips from one player's stack to another's. Applied at once between hands, queued during a hand. */
+  "host:transfer": (p: { fromPlayerId: string; toPlayerId: string; amount: number }) => void;
+  "host:playerTimer": (p: { playerId: string; seconds: number | null }) => void; // null = table default, 0 = no limit, else 10..300
+  "host:addTime": (p: { playerId: string; seconds: number }) => void; // extends the current deadline if that player is to act
+  "host:forceTimeout": (p: { playerId: string }) => void; // act for them now (check, else fold) if they are to act
+  /** Tournament clock controls while running. */
+  "host:tournamentLevel": (p: { delta: 1 | -1 }) => void; // jump a level forward/back; new blinds apply next hand
+  "host:tournamentClock": (p: { addMs: number }) => void; // add/remove time on the current level
 }
 
 export interface ServerToClientEvents {

@@ -4,6 +4,7 @@ import {
   VARIANTS,
   applyAction,
   commitDeck,
+  isValidAvatar,
   legalActions,
   potsView,
   startHand,
@@ -12,11 +13,15 @@ import {
   type HandRecord,
   type HandState,
   type HandView,
+  type PendingAward,
   type LedgerEntry,
   type PlayerAction,
   type SeatView,
   type TableConfig,
   type TableView,
+  type TournamentConfig,
+  type TournamentStanding,
+  type TournamentView,
   type WinnerView,
 } from "@homegame/engine";
 
@@ -65,6 +70,25 @@ interface Player {
   kickQueued: boolean;
   rebuyQueued: number;
   adjustQueued: number;
+  avatar: string | null;
+  /** Host override of the action timer: null = table default, 0 = no limit. */
+  timerSec: number | null;
+  /** Tournament finishing place once out (1 = winner); null while alive. */
+  place: number | null;
+}
+
+interface Transfer {
+  fromId: string;
+  toId: string;
+  amount: number;
+}
+
+interface TourneyState {
+  status: "registering" | "running" | "finished";
+  levelIndex: number;
+  levelsCompleted: number;
+  levelEndsAt: number | null;
+  levelRemainingMs: number;
 }
 
 interface HandCtx {
@@ -73,6 +97,10 @@ interface HandCtx {
   reveal: { deck: Card[]; salt: string };
   participants: Set<string>;
   actionDeadline: number | null;
+  /** Stack of each participant when the hand began (for tournament ranking). */
+  startStacks: Map<string, number>;
+  /** What the host actually awarded, once done (host award mode). */
+  awarded: WinnerView[] | null;
 }
 
 const LOG_CAP = 200;
@@ -82,7 +110,13 @@ const FOLD_DELAY = 2500;
 const MIN_DELAY = 1000;
 const HOST_HANDOFF_MS = 60_000;
 
-const CONFIG_KEYS = ["variant", "smallBlind", "bigBlind", "maxSeats", "actionTimeoutSec", "minBuyIn", "maxBuyIn"] as const;
+const CONFIG_KEYS = ["variant", "smallBlind", "bigBlind", "maxSeats", "actionTimeoutSec", "minBuyIn", "maxBuyIn", "awardMode", "mode", "tournament"] as const;
+
+const ordinal = (n: number): string => {
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 13) return `${n}th`;
+  return `${n}${({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
+};
 
 const isInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n);
 
@@ -113,6 +147,10 @@ export class Table {
   /** Epoch ms when the host lost its last connection; null while the host is connected. */
   private hostOfflineSince: number | null = null;
   private hostTimer: unknown = null;
+  private pendingAward: PendingAward | null = null;
+  private transfers: Transfer[] = [];
+  private t: TourneyState | null = null;
+  private levelTimer: unknown = null;
 
   constructor(opts: TableOptions) {
     this.tableId = opts.tableId;
@@ -121,23 +159,27 @@ export class Table {
     this.deckSource = opts.deckSource;
     this.onChange = opts.onChange;
     this.config = { ...DEFAULT_CONFIG, ...opts.config };
+    if (this.config.mode === "tournament") this.t = this.newTourney();
     this.idleSince = this.now();
   }
 
   // ------------------------------------------------------------------ identity
 
   /** Registers one connection for the token's player (creating the player if new) and returns the public playerId. */
-  join(token: string, rawName: string): string {
+  join(token: string, rawName: string, rawAvatar?: unknown): string {
     if (typeof token !== "string" || token.length < 1 || token.length > 200) throw new UserError("Invalid player token.");
     const name = this.cleanName(rawName);
+    const avatar = rawAvatar === undefined ? undefined : this.cleanAvatar(rawAvatar);
     let p = this.byToken.has(token) ? this.players.get(this.byToken.get(token)!) : undefined;
     if (p) {
       p.name = this.uniqueName(name, p.id);
+      if (avatar !== undefined) p.avatar = avatar;
     } else {
       const id = randomBytes(8).toString("hex");
       p = {
         id, token, name: this.uniqueName(name, id), connections: 0, seat: null, stack: 0, sittingOut: false,
         timeouts: 0, buyIns: 0, cashOuts: 0, banned: false, standQueued: false, kickQueued: false, rebuyQueued: 0, adjustQueued: 0,
+        avatar: avatar ?? null, timerSec: null, place: null,
       };
       this.players.set(id, p);
       this.byToken.set(token, id);
@@ -177,9 +219,22 @@ export class Table {
   }
 
   dispose(): void {
+    this.clearLevelTimer();
     this.clearStartTimer();
     this.clearActionTimer();
     this.clearHostTimer();
+  }
+
+  setAvatar(playerId: string, avatar: unknown): void {
+    const p = this.get(playerId);
+    p.avatar = this.cleanAvatar(avatar);
+    this.changed();
+  }
+
+  private cleanAvatar(raw: unknown): string | null {
+    if (raw === null) return null;
+    if (typeof raw !== "string" || !isValidAvatar(raw)) throw new UserError("That avatar is not available.");
+    return raw;
   }
 
   private cleanName(raw: unknown): string {
@@ -218,12 +273,19 @@ export class Table {
     if (p.seat !== null) throw new UserError("You are already seated.");
     if (!isInt(seat) || seat < 0 || seat >= this.config.maxSeats) throw new UserError("That seat does not exist.");
     if (this.seatOwner(seat)) throw new UserError("That seat is taken.");
-    if (!isInt(buyIn) || buyIn < this.config.minBuyIn || buyIn > this.config.maxBuyIn) {
+    const tour = this.isTourney();
+    if (tour) {
+      const t = this.tourney();
+      if (t.status === "running" && !this.lateRegOpen()) throw new UserError("Late registration is closed.");
+      if (t.status === "finished") this.t = this.newTourney();
+      buyIn = this.config.tournament.startingStack;
+    } else if (!isInt(buyIn) || buyIn < this.config.minBuyIn || buyIn > this.config.maxBuyIn) {
       throw new UserError(`Buy-in must be a whole number from ${this.config.minBuyIn} to ${this.config.maxBuyIn}.`);
     }
     p.seat = seat;
     p.stack = buyIn;
-    p.buyIns += buyIn;
+    if (!tour) p.buyIns += buyIn;
+    p.place = null;
     p.sittingOut = false;
     p.timeouts = 0;
     this.clearQueued(p);
@@ -239,6 +301,7 @@ export class Table {
       this.addLog(`${p.name} will leave after this hand`);
     } else {
       this.removeFromSeat(p, "stood up");
+      this.eliminate();
     }
     this.changed();
   }
@@ -259,6 +322,7 @@ export class Table {
 
   rebuy(playerId: string, amount: number): void {
     const p = this.get(playerId);
+    if (this.isTourney()) throw new UserError("Rebuys are off in this tournament.");
     if (p.seat === null) throw new UserError("Sit down before buying more chips.");
     if (!isInt(amount) || amount <= 0) throw new UserError("Enter a whole number of chips.");
     if (this.inLiveHand(p)) {
@@ -276,7 +340,7 @@ export class Table {
   private credit(p: Player, amount: number, verb: string): void {
     const wasEmpty = p.stack <= 0;
     p.stack += amount;
-    p.buyIns += amount;
+    if (!this.isTourney()) p.buyIns += amount;
     if (wasEmpty) {
       p.sittingOut = false;
       p.timeouts = 0;
@@ -285,7 +349,11 @@ export class Table {
   }
 
   private removeFromSeat(p: Player, why: string): void {
-    if (p.stack > 0) p.cashOuts += p.stack;
+    if (this.isTourney() && this.t?.status === "running") {
+      this.bustOut(p);
+      return;
+    }
+    if (p.stack > 0 && !this.isTourney()) p.cashOuts += p.stack;
     this.addLog(`${p.name} ${why} with ${p.stack}`);
     p.seat = null;
     p.stack = 0;
@@ -311,7 +379,8 @@ export class Table {
   }
 
   private eligible(): Player[] {
-    return this.seated().filter((p) => p.stack > 0 && !p.sittingOut);
+    const dealtAnyway = this.isTourney() && this.t?.status === "running"; // sitting-out players blind off
+    return this.seated().filter((p) => p.stack > 0 && (dealtAnyway || !p.sittingOut));
   }
 
   // ------------------------------------------------------------------ host
@@ -354,8 +423,15 @@ export class Table {
   hostStart(playerId: string): void {
     this.requireHost(playerId);
     if (this.status === "playing") throw new UserError("The game is already running.");
-    this.status = "playing";
-    this.addLog("The host started the game");
+    if (this.isTourney() && this.tourney().status !== "running") {
+      if (this.seated().length < 2) throw new UserError("At least 2 players must be seated to start a tournament.");
+      this.status = "playing";
+      this.startTournament();
+    } else {
+      this.status = "playing";
+      this.addLog("The host started the game");
+    }
+    this.syncClock();
     this.changed();
   }
 
@@ -372,6 +448,7 @@ export class Table {
       this.status = "playing";
       this.addLog("The host resumed the game");
     }
+    this.syncClock();
     this.changed();
   }
 
@@ -381,12 +458,27 @@ export class Table {
     const next: TableConfig = { ...(this.pendingConfig ?? this.config) };
     for (const key of Object.keys(patch)) {
       if (!(CONFIG_KEYS as readonly string[]).includes(key)) throw new UserError(`Unknown setting: ${key}`);
-      (next as unknown as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+      const val = (patch as Record<string, unknown>)[key];
+      (next as unknown as Record<string, unknown>)[key] = key === "tournament" && val && typeof val === "object" ? JSON.parse(JSON.stringify(val)) : val;
     }
     this.validateConfig(next);
-    if (!this.live()) {
+    const tourneyChange = next.mode !== this.config.mode || JSON.stringify(next.tournament) !== JSON.stringify(this.config.tournament);
+    if (tourneyChange && (this.handOpen() || this.t?.status === "running")) {
+      throw new UserError("Tournament settings can only change when no tournament is running and no hand is in progress.");
+    }
+    if (!this.handOpen()) {
+      if (next.mode !== this.config.mode) {
+        // Keep the cash ledger honest across mode switches: cash chips are cashed out before a
+        // tournament, and tournament chips are worthless afterwards (players rebuy for cash).
+        for (const p of this.seated()) {
+          if (next.mode === "tournament") p.cashOuts += p.stack;
+          else p.sittingOut = true;
+          p.stack = 0;
+        }
+      }
       this.config = next;
       this.pendingConfig = null;
+      this.syncMode();
       this.addLog("Table settings updated");
     } else if (JSON.stringify(next) === JSON.stringify(this.config)) {
       this.pendingConfig = null;
@@ -411,6 +503,26 @@ export class Table {
     }
     if (!isInt(c.minBuyIn) || c.minBuyIn <= 0 || !isInt(c.maxBuyIn) || c.maxBuyIn <= 0) throw new UserError("Buy-ins must be positive whole numbers.");
     if (c.minBuyIn > c.maxBuyIn) throw new UserError("The minimum buy-in cannot exceed the maximum.");
+    if (c.awardMode !== "auto" && c.awardMode !== "host") throw new UserError("Unknown award mode.");
+    if (c.mode !== "cash" && c.mode !== "tournament") throw new UserError("Unknown game mode.");
+    this.validateTournament(c.tournament);
+  }
+
+  private validateTournament(tc: TournamentConfig): void {
+    if (!tc || typeof tc !== "object" || !Array.isArray(tc.levels)) throw new UserError("Invalid tournament settings.");
+    if (!isInt(tc.startingStack) || tc.startingStack < 100 || tc.startingStack > 10_000_000) {
+      throw new UserError("The starting stack must be a whole number from 100 to 10,000,000.");
+    }
+    if (tc.levels.length < 1 || tc.levels.length > 40) throw new UserError("A tournament needs 1 to 40 blind levels.");
+    for (const [i, l] of tc.levels.entries()) {
+      if (!l || typeof l !== "object" || !isInt(l.smallBlind) || l.smallBlind < 1 || !isInt(l.bigBlind) || l.bigBlind < l.smallBlind) {
+        throw new UserError(`Level ${i + 1}: blinds must be whole numbers, big blind at least the small blind.`);
+      }
+      if (!isInt(l.minutes) || l.minutes < 1 || l.minutes > 120) throw new UserError(`Level ${i + 1}: minutes must be 1 to 120.`);
+    }
+    if (!isInt(tc.lateRegLevels) || tc.lateRegLevels < 0 || tc.lateRegLevels > tc.levels.length) {
+      throw new UserError("Late registration levels must be from 0 to the number of levels.");
+    }
   }
 
   private applyPending(): void {
@@ -436,6 +548,7 @@ export class Table {
         this.settleIfActor(t);
       } else {
         this.removeFromSeat(t, "was removed by the host");
+        this.eliminate();
       }
     }
     this.changed();
@@ -452,6 +565,7 @@ export class Table {
       this.addLog(`The host will adjust ${t.name}'s stack by ${delta > 0 ? "+" : ""}${delta} after this hand`);
     } else {
       this.applyAdjust(t, delta);
+      this.eliminate();
     }
     this.changed();
   }
@@ -462,7 +576,7 @@ export class Table {
     } else {
       const take = Math.min(t.stack, -delta);
       t.stack -= take;
-      t.cashOuts += take;
+      if (!this.isTourney()) t.cashOuts += take;
       this.addLog(`The host removed ${take} chips from ${t.name}`);
       if (t.stack === 0) t.sittingOut = true;
     }
@@ -504,8 +618,13 @@ export class Table {
     return !!this.hand && !this.hand.state.outcome;
   }
 
+  /** A hand is running, or it has finished but its pot still waits for the host. */
+  private handOpen(): boolean {
+    return this.live() || this.pendingAward !== null;
+  }
+
   private inLiveHand(p: Player): boolean {
-    return this.live() && this.hand!.participants.has(p.id);
+    return this.handOpen() && !!this.hand && this.hand.participants.has(p.id);
   }
 
   private commit(after: HandState, line: string | null): void {
@@ -548,28 +667,36 @@ export class Table {
     this.clearActionTimer();
     const h = this.hand;
     if (!h) return;
-    if (h.state.outcome || h.state.toActSeat === null || this.config.actionTimeoutSec <= 0) {
+    const actor = h.state.toActSeat === null ? undefined : this.seatOwner(h.state.toActSeat);
+    const sec = actor?.timerSec ?? this.config.actionTimeoutSec;
+    if (h.state.outcome || h.state.toActSeat === null || sec <= 0) {
       h.actionDeadline = null;
       return;
     }
-    const ms = this.config.actionTimeoutSec * 1000;
+    const ms = sec * 1000;
     h.actionDeadline = this.now() + ms;
+    this.scheduleActionTimer(ms);
+  }
+
+  private scheduleActionTimer(ms: number): void {
+    this.clearActionTimer();
     this.actionTimer = this.sched.setTimeout(() => {
       this.actionTimer = null;
-      this.onActionTimeout();
+      this.onActionTimeout(true);
     }, ms);
   }
 
-  private onActionTimeout(): void {
+  private onActionTimeout(counted: boolean): void {
     const h = this.hand;
     if (!h || h.state.outcome || h.state.toActSeat === null) return;
     const p = this.seatOwner(h.state.toActSeat);
     if (!p) return;
+    this.clearActionTimer();
     const next = timeoutAction(h.state);
     const folded = next.players.find((q) => q.playerId === p.id)?.folded;
-    p.timeouts++;
-    this.commit(next, `${p.name} timed out and ${folded ? "folds" : "checks"}`);
-    if (p.timeouts >= 2 && !p.sittingOut) {
+    if (counted) p.timeouts++;
+    this.commit(next, `${p.name} ${counted ? "timed out and" : "was timed out by the host and"} ${folded ? "folds" : "checks"}`);
+    if (counted && p.timeouts >= 2 && !p.sittingOut) {
       p.sittingOut = true;
       this.addLog(`${p.name} is sitting out after two timeouts`);
     }
@@ -593,7 +720,8 @@ export class Table {
   }
 
   private maybeSchedule(): void {
-    if (this.status !== "playing" || this.live() || this.startTimer !== null) return;
+    if (this.status !== "playing" || this.handOpen() || this.startTimer !== null) return;
+    if (this.isTourney() && this.t?.status !== "running") return;
     if (this.eligible().length < 2) return;
     const delay = this.endedAt === null ? FIRST_HAND_DELAY : Math.max(MIN_DELAY, this.nextDelay - (this.now() - this.endedAt));
     this.startTimer = this.sched.setTimeout(() => {
@@ -604,13 +732,15 @@ export class Table {
   }
 
   private beginHand(): void {
-    if (this.status !== "playing" || this.live()) return;
+    if (this.status !== "playing" || this.handOpen()) return;
+    if (this.isTourney() && this.t?.status !== "running") return;
     const el = this.eligible();
     if (el.length < 2) return;
     this.applyPending();
     const seatsAsc = el.map((p) => p.seat!);
     const button = seatsAsc.find((s) => s > this.buttonSeat) ?? seatsAsc[0]!;
     this.buttonSeat = button;
+    const blinds = this.currentBlinds();
     const deck = this.deckSource();
     const { hash, reveal } = commitDeck(deck);
     this.handCounter++;
@@ -619,11 +749,14 @@ export class Table {
       variant: this.config.variant,
       seats: el.map((p) => ({ seat: p.seat!, playerId: p.id, stack: p.stack })),
       buttonSeat: button,
-      smallBlind: this.config.smallBlind,
-      bigBlind: this.config.bigBlind,
+      smallBlind: blinds.smallBlind,
+      bigBlind: blinds.bigBlind,
       deck,
     });
-    this.hand = { state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null };
+    this.hand = {
+      state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null,
+      startStacks: new Map(el.map((p) => [p.id, p.stack])), awarded: null,
+    };
     const btn = this.seatOwner(button);
     this.addLog(`Hand #${this.handCounter} (${VARIANTS[this.config.variant].name}), button: ${btn?.name ?? "?"}`);
     this.settle();
@@ -634,22 +767,31 @@ export class Table {
     const o = h.state.outcome!;
     this.clearActionTimer();
     h.actionDeadline = null;
+    const hostMode = this.config.awardMode === "host";
+    const won = new Map<string, number>();
+    for (const w of o.winners) won.set(w.playerId, (won.get(w.playerId) ?? 0) + w.amount);
+    let withheld = 0;
     for (const id of h.participants) {
       const p = this.players.get(id);
       const fin = o.finalStacks[id];
-      if (p && fin !== undefined) p.stack = fin;
+      if (!p || fin === undefined) continue;
+      const w = hostMode ? (won.get(id) ?? 0) : 0;
+      p.stack = fin - w;
+      withheld += w;
     }
-    // Log winners, grouped per player and hand.
-    const groups = new Map<string, { id: string; amount: number; name: string | null; low: boolean }>();
-    for (const w of o.winners) {
-      const key = `${w.playerId}|${w.handName ?? ""}|${w.half}`;
-      const g = groups.get(key) ?? { id: w.playerId, amount: 0, name: w.handName, low: w.half === "low" };
-      g.amount += w.amount;
-      groups.set(key, g);
-    }
-    for (const g of groups.values()) {
-      const nm = this.players.get(g.id)?.name ?? "Someone";
-      this.addLog(`${nm} wins ${g.amount}${g.name ? ` with ${g.name}${g.low ? " (low)" : ""}` : ""}`);
+    // Log winners, grouped per player and hand (automatic mode only; the host announces awards otherwise).
+    if (!hostMode) {
+      const groups = new Map<string, { id: string; amount: number; name: string | null; low: boolean }>();
+      for (const w of o.winners) {
+        const key = `${w.playerId}|${w.handName ?? ""}|${w.half}`;
+        const g = groups.get(key) ?? { id: w.playerId, amount: 0, name: w.handName, low: w.half === "low" };
+        g.amount += w.amount;
+        groups.set(key, g);
+      }
+      for (const g of groups.values()) {
+        const nm = this.players.get(g.id)?.name ?? "Someone";
+        this.addLog(`${nm} wins ${g.amount}${g.name ? ` with ${g.name}${g.low ? " (low)" : ""}` : ""}`);
+      }
     }
     this.lastHand = {
       handNumber: h.state.handNumber,
@@ -673,12 +815,27 @@ export class Table {
     this.nextDelay = foldEnd ? FOLD_DELAY : SHOWDOWN_DELAY;
     this.endedAt = this.now();
 
-    // Queued requests.
+    if (hostMode && withheld > 0) {
+      this.pendingAward = {
+        handNumber: h.state.handNumber,
+        amount: withheld,
+        candidatePlayerIds: [...h.participants],
+        suggested: [...won].filter(([, amt]) => amt > 0).map(([playerId, amount]) => ({ playerId, amount })),
+      };
+      this.addLog(`Hand #${h.state.handNumber}: ${withheld} is waiting for the dealer to award`);
+      return;
+    }
+    this.completeHand();
+  }
+
+  /** Everything that follows a hand once its chips are settled (after any dealer award). */
+  private completeHand(): void {
+    const h = this.hand!;
+    this.endedAt = this.now();
+    this.applyTransfers();
+    // Players who stay: queued rebuys and adjustments.
     for (const p of this.seated()) {
-      if (p.kickQueued || p.standQueued) {
-        this.removeFromSeat(p, p.kickQueued ? "was removed" : "cashed out");
-        continue;
-      }
+      if (p.kickQueued || p.standQueued) continue;
       if (p.rebuyQueued > 0) {
         const room = this.config.maxBuyIn - p.stack;
         const amt = Math.min(p.rebuyQueued, room);
@@ -690,12 +847,360 @@ export class Table {
         p.adjustQueued = 0;
         this.applyAdjust(p, d);
       }
-      if (p.stack <= 0) {
+      if (p.stack <= 0 && !this.isTourney()) {
         p.sittingOut = true;
         this.addLog(`${p.name} is out of chips`);
       }
     }
+    // Busts are ranked before voluntary leavers are removed.
+    this.eliminate(h.startStacks);
+    for (const p of this.seated()) {
+      if (p.kickQueued || p.standQueued) this.removeFromSeat(p, p.kickQueued ? "was removed" : "cashed out");
+    }
+    this.eliminate(h.startStacks);
     this.applyPending();
+  }
+
+  private applyTransfers(): void {
+    const queued = this.transfers;
+    this.transfers = [];
+    for (const tr of queued) {
+      const from = this.players.get(tr.fromId);
+      const to = this.players.get(tr.toId);
+      if (!from || !to) continue;
+      if (from.seat === null || to.seat === null || from.stack < tr.amount) {
+        this.addLog(`Dealer's move of ${tr.amount} from ${from.name} to ${to.name} was skipped (not enough chips)`);
+        continue;
+      }
+      this.moveChips(from, to, tr.amount);
+    }
+  }
+
+  private moveChips(from: Player, to: Player, amount: number): void {
+    const wasEmpty = to.stack <= 0;
+    from.stack -= amount;
+    to.stack += amount;
+    this.addLog(`Dealer moves ${amount} from ${from.name} to ${to.name}`);
+    if (!this.isTourney()) {
+      if (wasEmpty) {
+        to.sittingOut = false;
+        to.timeouts = 0;
+      }
+      if (from.stack === 0) from.sittingOut = true;
+    }
+  }
+
+  hostAward(playerId: string, awards: unknown): void {
+    this.requireHost(playerId);
+    const pa = this.pendingAward;
+    if (!pa) throw new UserError("There is no pot waiting to be awarded.");
+    if (!Array.isArray(awards)) throw new UserError("Invalid request.");
+    const totals = new Map<string, number>();
+    for (const a of awards as unknown[]) {
+      if (!a || typeof a !== "object") throw new UserError("Invalid request.");
+      const { playerId: id, amount } = a as { playerId?: unknown; amount?: unknown };
+      if (typeof id !== "string" || !pa.candidatePlayerIds.includes(id)) throw new UserError("Chips can only go to players dealt into this hand.");
+      if (!isInt(amount) || amount < 0) throw new UserError("Award amounts must be whole numbers, zero or more.");
+      totals.set(id, (totals.get(id) ?? 0) + amount);
+    }
+    const sum = [...totals.values()].reduce((x, y) => x + y, 0);
+    if (sum !== pa.amount) throw new UserError(`Awards must add up to exactly ${pa.amount} (you entered ${sum}).`);
+    const h = this.hand!;
+    const byHand = new Map<string, string>();
+    for (const w of h.state.outcome!.winners) if (w.handName && !byHand.has(w.playerId)) byHand.set(w.playerId, w.handName);
+    const winners: WinnerView[] = [];
+    const parts: string[] = [];
+    for (const [id, amount] of totals) {
+      if (amount <= 0) continue;
+      const p = this.players.get(id)!;
+      p.stack += amount;
+      winners.push({ playerId: id, amount, potIndex: 0, half: "whole", handName: byHand.get(id) ?? null });
+      parts.push(`${amount} to ${p.name}`);
+    }
+    this.addLog(`Dealer awards ${parts.join(", ")}`);
+    h.awarded = winners;
+    if (this.lastHand) this.lastHand = { ...this.lastHand, winners };
+    this.pendingAward = null;
+    this.nextDelay = MIN_DELAY; // the dealer already paused the game; do not wait again
+    this.completeHand();
+    this.changed();
+  }
+
+  hostTransfer(playerId: string, fromId: unknown, toId: unknown, amount: unknown): void {
+    this.requireHost(playerId);
+    const from = typeof fromId === "string" ? this.players.get(fromId) : undefined;
+    const to = typeof toId === "string" ? this.players.get(toId) : undefined;
+    if (!from || !to || from.seat === null || to.seat === null) throw new UserError("Both players must be seated.");
+    if (from.id === to.id) throw new UserError("Pick two different players.");
+    if (!isInt(amount) || amount <= 0) throw new UserError("Enter a positive whole number of chips.");
+    if (this.handOpen()) {
+      this.transfers.push({ fromId: from.id, toId: to.id, amount });
+      this.addLog(`Dealer will move ${amount} from ${from.name} to ${to.name} after this hand`);
+    } else {
+      if (from.stack < amount) throw new UserError(`${from.name} only has ${from.stack}.`);
+      this.moveChips(from, to, amount);
+      this.eliminate();
+    }
+    this.changed();
+  }
+
+  // ------------------------------------------------------------------ timers (host)
+
+  hostPlayerTimer(playerId: string, targetId: unknown, seconds: unknown): void {
+    this.requireHost(playerId);
+    const t = typeof targetId === "string" ? this.players.get(targetId) : undefined;
+    if (!t) throw new UserError("That player is not at this table.");
+    if (seconds !== null && !(isInt(seconds) && (seconds === 0 || (seconds >= 10 && seconds <= 300)))) {
+      throw new UserError("A player timer must be off (0), the table default, or 10 to 300 seconds.");
+    }
+    t.timerSec = seconds as number | null;
+    this.addLog(`Dealer set ${t.name}'s timer to ${seconds === null ? "the table default" : seconds === 0 ? "no limit" : `${seconds}s`}`);
+    const h = this.hand;
+    if (h && !h.state.outcome && h.state.toActSeat !== null && h.state.toActSeat === t.seat) this.armActionTimer();
+    this.changed();
+  }
+
+  private onClock(targetId: unknown): Player {
+    const t = typeof targetId === "string" ? this.players.get(targetId) : undefined;
+    const h = this.hand;
+    if (!t || !h || h.state.outcome || h.state.toActSeat === null || t.seat !== h.state.toActSeat) {
+      throw new UserError("That player is not on the clock.");
+    }
+    return t;
+  }
+
+  hostAddTime(playerId: string, targetId: unknown, seconds: unknown): void {
+    this.requireHost(playerId);
+    if (!isInt(seconds) || seconds < 10 || seconds > 300) throw new UserError("Add 10 to 300 seconds.");
+    const t = this.onClock(targetId);
+    const h = this.hand!;
+    if (h.actionDeadline === null) throw new UserError(`${t.name} has no time limit right now.`);
+    h.actionDeadline += seconds * 1000;
+    this.scheduleActionTimer(Math.max(0, h.actionDeadline - this.now()));
+    this.addLog(`Dealer gave ${t.name} ${seconds} more seconds`);
+    this.changed();
+  }
+
+  hostForceTimeout(playerId: string, targetId: unknown): void {
+    this.requireHost(playerId);
+    this.onClock(targetId);
+    this.onActionTimeout(false);
+    this.changed();
+  }
+
+  // ------------------------------------------------------------------ tournament
+
+  private isTourney(): boolean {
+    return this.config.mode === "tournament";
+  }
+
+  private newTourney(): TourneyState {
+    return { status: "registering", levelIndex: 0, levelsCompleted: 0, levelEndsAt: null, levelRemainingMs: this.config.tournament.levels[0]!.minutes * 60_000 };
+  }
+
+  private tourney(): TourneyState {
+    return (this.t ??= this.newTourney());
+  }
+
+  private levelAt(i: number): { smallBlind: number; bigBlind: number; minutes: number } {
+    const lv = this.config.tournament.levels;
+    return lv[Math.max(0, Math.min(i, lv.length - 1))]!;
+  }
+
+  private lateRegOpen(): boolean {
+    const t = this.t;
+    if (!t || t.status === "finished") return false;
+    if (t.status === "registering") return true;
+    return t.levelsCompleted < this.config.tournament.lateRegLevels;
+  }
+
+  private currentBlinds(): { smallBlind: number; bigBlind: number } {
+    if (this.isTourney() && this.t?.status === "running") return this.levelAt(this.t.levelIndex);
+    return { smallBlind: this.config.smallBlind, bigBlind: this.config.bigBlind };
+  }
+
+  /** Called after mode/tournament settings were applied. */
+  private syncMode(): void {
+    if (this.isTourney()) {
+      const t = this.tourney();
+      if (t.status === "registering") t.levelRemainingMs = this.levelAt(0).minutes * 60_000;
+      if (t.status !== "running") {
+        this.status = "waiting";
+        this.clearStartTimer();
+      }
+    } else {
+      this.t = null;
+      this.clearLevelTimer();
+      for (const p of this.players.values()) p.place = null;
+    }
+  }
+
+  private startTournament(): void {
+    const tc = this.config.tournament;
+    for (const p of this.players.values()) {
+      p.place = null;
+      if (p.seat === null) continue;
+      p.stack = tc.startingStack;
+      p.sittingOut = false;
+      p.timeouts = 0;
+      this.clearQueued(p);
+    }
+    this.transfers = [];
+    this.clearLevelTimer();
+    this.t = { status: "running", levelIndex: 0, levelsCompleted: 0, levelEndsAt: null, levelRemainingMs: this.levelAt(0).minutes * 60_000 };
+    const l = this.levelAt(0);
+    this.addLog(`The tournament started: ${this.seated().length} players, ${tc.startingStack} chips each`);
+    this.addLog(`Level 1: ${l.smallBlind}/${l.bigBlind}`);
+  }
+
+  /** Runs the level clock only while the table is playing; freezes it otherwise. */
+  private syncClock(): void {
+    const t = this.t;
+    if (!t || t.status !== "running") return;
+    if (this.status === "playing") {
+      if (t.levelEndsAt === null) {
+        t.levelEndsAt = this.now() + t.levelRemainingMs;
+        this.armLevelTimer();
+      }
+    } else if (t.levelEndsAt !== null) {
+      t.levelRemainingMs = Math.max(0, t.levelEndsAt - this.now());
+      t.levelEndsAt = null;
+      this.clearLevelTimer();
+    }
+  }
+
+  private armLevelTimer(): void {
+    this.clearLevelTimer();
+    const t = this.t;
+    if (!t || t.levelEndsAt === null) return;
+    this.levelTimer = this.sched.setTimeout(() => {
+      this.levelTimer = null;
+      this.onLevelEnd();
+    }, Math.max(0, t.levelEndsAt - this.now()));
+  }
+
+  private clearLevelTimer(): void {
+    if (this.levelTimer !== null) this.sched.clearTimeout(this.levelTimer);
+    this.levelTimer = null;
+  }
+
+  private onLevelEnd(): void {
+    const t = this.t;
+    if (!t || t.status !== "running" || t.levelEndsAt === null) return;
+    const last = this.config.tournament.levels.length - 1;
+    const idx = Math.min(t.levelIndex + 1, last);
+    t.levelsCompleted++;
+    if (idx !== t.levelIndex) {
+      t.levelIndex = idx;
+      const l = this.levelAt(idx);
+      this.addLog(`Level ${idx + 1}: ${l.smallBlind}/${l.bigBlind}`);
+    }
+    t.levelRemainingMs = this.levelAt(idx).minutes * 60_000;
+    t.levelEndsAt = this.now() + t.levelRemainingMs;
+    this.armLevelTimer();
+    this.changed();
+  }
+
+  private runningTourney(): TourneyState {
+    const t = this.t;
+    if (!t || t.status !== "running") throw new UserError("The tournament is not running.");
+    return t;
+  }
+
+  hostTournamentLevel(playerId: string, delta: unknown): void {
+    this.requireHost(playerId);
+    const t = this.runningTourney();
+    if (delta !== 1 && delta !== -1) throw new UserError("Invalid request.");
+    const idx = Math.max(0, Math.min(t.levelIndex + delta, this.config.tournament.levels.length - 1));
+    if (idx === t.levelIndex) throw new UserError(delta > 0 ? "Already at the last level." : "Already at the first level.");
+    t.levelIndex = idx;
+    t.levelsCompleted = Math.max(0, t.levelsCompleted + delta);
+    t.levelRemainingMs = this.levelAt(idx).minutes * 60_000;
+    if (t.levelEndsAt !== null) {
+      t.levelEndsAt = this.now() + t.levelRemainingMs;
+      this.armLevelTimer();
+    }
+    const l = this.levelAt(idx);
+    this.addLog(`The host moved to level ${idx + 1}: ${l.smallBlind}/${l.bigBlind} (applies next hand)`);
+    this.changed();
+  }
+
+  hostTournamentClock(playerId: string, addMs: unknown): void {
+    this.requireHost(playerId);
+    const t = this.runningTourney();
+    if (!isInt(addMs) || Math.abs(addMs) > 86_400_000) throw new UserError("Invalid time change.");
+    const cur = t.levelEndsAt !== null ? t.levelEndsAt - this.now() : t.levelRemainingMs;
+    const rem = Math.max(1000, cur + addMs);
+    if (t.levelEndsAt !== null) {
+      t.levelEndsAt = this.now() + rem;
+      this.armLevelTimer();
+    } else {
+      t.levelRemainingMs = rem;
+    }
+    this.addLog(`The host ${addMs >= 0 ? "added" : "removed"} ${Math.round(Math.abs(addMs) / 1000)}s ${addMs >= 0 ? "to" : "from"} the level clock`);
+    this.changed();
+  }
+
+  /** Frees the seat of a tournament player who is out and records the finishing place. */
+  private bustOut(p: Player): void {
+    const place = this.seated().length;
+    p.place = place;
+    this.addLog(`${p.name} finishes ${ordinal(place)}`);
+    p.seat = null;
+    p.stack = 0;
+    p.sittingOut = false;
+    p.timeouts = 0;
+    this.clearQueued(p);
+  }
+
+  /** Eliminates players at zero (best start-of-hand stack = better place) and ends the tournament at one survivor. */
+  private eliminate(startStacks?: Map<string, number>): void {
+    const t = this.t;
+    if (!this.isTourney() || !t || t.status !== "running" || this.handOpen()) return;
+    const busts = this.seated().filter((p) => p.stack <= 0);
+    // Smallest starting stack finishes last (worst place), so assign places from the bottom up.
+    busts.sort((a, b) => (startStacks?.get(a.id) ?? 0) - (startStacks?.get(b.id) ?? 0) || b.seat! - a.seat!);
+    for (const p of busts) this.bustOut(p);
+    const alive = this.seated();
+    if (alive.length <= 1) {
+      const w = alive[0];
+      if (w) {
+        w.place = 1;
+        this.addLog(`${w.name} wins the tournament!`);
+      }
+      t.status = "finished";
+      t.levelEndsAt = null;
+      this.clearLevelTimer();
+      this.clearStartTimer();
+      this.status = "waiting";
+    }
+  }
+
+  private tournamentView(): TournamentView | null {
+    if (!this.isTourney()) return null;
+    const t = this.tourney();
+    const tc = this.config.tournament;
+    const idx = Math.min(t.levelIndex, tc.levels.length - 1);
+    const standings: TournamentStanding[] = [...this.players.values()]
+      .filter((p) => p.seat !== null || p.place !== null)
+      .map((p) => ({ playerId: p.id, name: p.name, stack: p.seat !== null ? p.stack : 0, place: p.place }));
+    standings.sort((a, b) => {
+      if ((a.place === null) !== (b.place === null)) return a.place === null ? -1 : 1;
+      if (a.place === null) return b.stack - a.stack;
+      return a.place! - b.place!;
+    });
+    return {
+      status: t.status,
+      levelIndex: idx,
+      level: { ...tc.levels[idx]! },
+      nextLevel: tc.levels[idx + 1] ? { ...tc.levels[idx + 1]! } : null,
+      levelEndsAt: t.levelEndsAt,
+      levelRemainingMs: t.levelEndsAt !== null ? Math.max(0, t.levelEndsAt - this.now()) : t.levelRemainingMs,
+      startingStack: tc.startingStack,
+      lateRegOpen: this.lateRegOpen(),
+      playersLeft: this.seated().length,
+      standings,
+    };
   }
 
   // ------------------------------------------------------------------ views
@@ -731,6 +1236,8 @@ export class Table {
         sittingOut: p.sittingOut,
         connected: p.connections > 0,
         isButton: !!h && h.state.buttonSeat === p.seat,
+        avatar: p.avatar,
+        timeLimitSec: p.timerSec,
         holeCards,
         lastAction: hp ? hp.lastAction : null,
       };
@@ -748,11 +1255,11 @@ export class Table {
         actionDeadline: done ? null : h.actionDeadline,
         legal: actor && actor.id === me.id ? legalActions(h.state, me.id) : null,
         deckHash: h.deckHash,
-        winners: h.state.outcome ? (h.state.outcome.winners as WinnerView[]) : null,
+        winners: h.state.outcome ? (h.awarded ?? (h.state.outcome.winners as WinnerView[])) : null,
       };
     }
     const ledger: LedgerEntry[] = [];
-    for (const p of this.players.values()) {
+    for (const p of this.isTourney() ? [] : this.players.values()) {
       if (p.buyIns === 0 && p.cashOuts === 0) continue;
       const stack = p.seat !== null ? p.stack : 0;
       ledger.push({ playerId: p.id, name: p.name, buyIns: p.buyIns, cashOuts: p.cashOuts, stack, net: stack + p.cashOuts - p.buyIns });
@@ -769,6 +1276,8 @@ export class Table {
       lastHand: this.lastHand,
       ledger,
       log: [...this.log],
+      pendingAward: this.pendingAward ? { ...this.pendingAward, candidatePlayerIds: [...this.pendingAward.candidatePlayerIds], suggested: this.pendingAward.suggested.map((x) => ({ ...x })) } : null,
+      tournament: this.tournamentView(),
     };
   }
 }
