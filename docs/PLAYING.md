@@ -69,6 +69,9 @@ By default the dealer awards every pot. At showdown, everyone sees the winnings 
 - **No-Limit Hold’em Hi/Lo (no qualifier)**, up to 10 players: every pot splits between the best high hand and the lowest hand, using any five of your seven cards for each. There’s no 8-or-lower rule — even a king-high low can win. Aces are low, straights and flushes don’t hurt a low, and pairs do (any five different cards beat any pair).
 - **Pot-Limit Omaha Hi/Lo (8 or better)** with 4 hole cards, up to 10 players.
 - **5-Card Pot-Limit Omaha Hi/Lo (8 or better)**, up to 8 players.
+- **Pot-Limit Omaha Low**, 8 or better or with no qualifier, up to 10 players.
+- **FYST**, an Omaha game where the second-best low wins, up to 10 players.
+- **5-Murder**, up to 8 players.
 
 The host picks the game and the stakes.
 
@@ -94,3 +97,5 @@ Fairness check for any hand:
 - Before the first card is dealt, the server publishes a fingerprint (a SHA-256 hash) of the shuffled deck. You can see it in that hand’s details in the **History** tab as the committed hash.
 - After the hand, the server reveals the full deck order and a random salt.
 - Click **Verify shuffle**. Your browser combines the salt and the deck, computes the fingerprint again, and compares it with the one published before the hand. A ✓ means they match, so the deck wasn’t changed after the hand started. A ✗ means they don’t.
+
+You don’t have to click it: your browser checks each hand automatically and shows “✓ Hand #N verified” in the corner, or a red banner if a check fails. To check hands without using this site’s code, use **Copy fairness data** in **History** and paste it into the [outside verifier](https://heessuh.github.io/mochapoker-verify/). The **Fairness** tab shows whether anyone is getting better cards than chance would explain. Details are in [FAIRNESS.md](FAIRNESS.md).

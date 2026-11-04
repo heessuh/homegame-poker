@@ -35,22 +35,15 @@ fly secrets set BUDGET_LIMIT_USD=10 -a mochapoker
 
 Setting a secret restarts the server, which lifts the pause if the new limit is above this month’s spend.
 
-## One-time setup (owner)
+## Setup
 
-These two steps need Fred, because they store a key and set up an automatic email.
+Both one-time steps were completed on November 4, 2026.
 
-### 1. Store the meter key on Fly.io
+1. **Meter key:** stored as the Fly.io secret `USAGE_TOKEN`. The owner’s copy is in `~/.mochapoker/usage-token`. The owner report at `/admin/usage` needs this key.
+2. **Daily email check:** the scheduled task “Mocha Poker budget check” in the Claude desktop app runs every morning at about 9:00. It reads the meter and emails heessuh@gmail.com, once at the 80% warning and once at the $5 limit, never more than once per level per month. Scheduled tasks run while the Claude app is open; if it’s closed at that time, the check runs the next time the app opens. Its instructions are in [budget-check-task.md](budget-check-task.md).
 
-The key is in `C:\Users\Windows\.mochapoker\usage-token` on Fred’s PC. In Git Bash:
+To set the key again (for example, after replacing it), in Git Bash:
 
 ```bash
 fly secrets set USAGE_TOKEN="$(cat ~/.mochapoker/usage-token)" -a mochapoker
 ```
-
-Until this is set, the owner report at `/admin/usage` answers “not found” (the guardrail itself still works).
-
-### 2. Turn on the daily email check
-
-A scheduled task in the Claude desktop app runs every morning at 9:00. It reads the meter and emails heessuh@gmail.com through Gmail. It emails once at the 80% warning and once at the $5 limit, never more than once per level per month. Scheduled tasks run while the Claude app is open; if it’s closed at 9:00, the check runs the next time the app opens.
-
-To create it, allow Claude to create scheduled tasks and ask it to set up “Mocha Poker budget check,” or create the task yourself in the app with the instructions in [budget-check-task.md](budget-check-task.md).

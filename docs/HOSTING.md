@@ -23,7 +23,7 @@ Use the game dropdown in the top bar. If no hand is running, the game changes ri
 
 In the **Host** tab, under **Settings**, you can change:
 
-- **Variant**: No-Limit Hold’em, Pot-Limit Omaha (4 or 5 cards), or Hold’em Hi/Lo (no qualifier), or the Omaha Hi/Lo 8-or-better versions.
+- **Variant**: any of the games listed in [House Rules](HOUSE_RULES.md).
 - **Small blind** and **Big blind**.
 - **Max seats**: 2 to 10 for four-card games, 2 to 8 for five-card games.
 - **Action timer**: seconds per action, or 0 to turn it off. Allowed values are 0 or 5 to 300.
@@ -47,7 +47,7 @@ Under **Players** you can see everyone seated with their stack.
 - **Move chips** moves any amount from one player’s stack to another’s at any time. Between hands it happens right away; during a hand, it happens at the end of the current hand.
 - **Timer** sets each player’s action timer: **Table default**, **No limit**, or 15 to 180 seconds. While someone is acting, you can click **+30s** to give them more time, or **Time out now** to act for them: check if possible, otherwise fold.
 
-Every buy-in, rebuy, host adjustment, and cash-out is recorded in the **Ledger** tab, so you can settle up at the end of the night.
+Every buy-in, rebuy, host adjustment, and cash-out is recorded in the **Ledger** tab, so you can settle up at the end of the night. Everything you do as host also goes in the dealer log, which every player can see and which their browsers check for tampering.
 
 ## Pot awarding
 
