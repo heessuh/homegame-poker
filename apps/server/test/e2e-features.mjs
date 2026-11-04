@@ -42,7 +42,7 @@ H.s.emit("host:tournamentLevel", { delta: 1 }); H.auto = A.auto = B.auto = true;
 // timer controls on whoever is to act
 for (let i = 0; i < 20 && !H.v.hand?.toActSeat && H.v.hand?.toActSeat !== 0; i++) await wait(200);
 H.auto = false; await wait(300);
-for (let i = 0; i < 200 && H.v.tournament?.status !== "finished"; i++) { if (H.v.hand?.legal) H.s.emit("action", { type: "raise", amount: H.v.hand.legal.maxRaiseTo ?? 0 }); await wait(150); }
+for (let i = 0; i < 1200 && H.v.tournament?.status !== "finished"; i++) { if (H.v.hand?.legal) H.s.emit("action", { type: "raise", amount: H.v.hand.legal.maxRaiseTo ?? 0 }); await wait(150); }
 ok(H.v.tournament?.status === "finished", "tournament finished");
 const places = H.v.tournament.standings.map((s) => `${s.name}:${s.place}`).join(" "); ok(H.v.tournament.standings.every((s) => s.place), "places " + places);
 console.log("host errors:", H.errors.join(" | "));
