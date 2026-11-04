@@ -10,10 +10,11 @@ function client(name, token, avatar) {
   s.on("error", (e) => c.errors.push(e.message));
   return c;
 }
+const until = async (fn, ms = 15000) => { const t = Date.now(); while (!fn() && Date.now() - t < ms) await wait(100); };
 const ok = (cond, msg) => { console.log((cond ? "PASS " : "FAIL ") + msg); if (!cond) process.exitCode = 1; };
-const H = client("Host", "tok-h-" + tableId, "🐼"); await wait(600);
-const A = client("Ana", "tok-a-" + tableId, "7"); const B = client("Bo", "tok-b-" + tableId, null); await wait(400);
-H.s.emit("sit", { seat: 0, buyIn: 200 }); A.s.emit("sit", { seat: 1, buyIn: 200 }); B.s.emit("sit", { seat: 2, buyIn: 200 }); await wait(300);
+const H = client("Host", "tok-h-" + tableId, "🐼"); await until(() => H.v);
+const A = client("Ana", "tok-a-" + tableId, "7"); const B = client("Bo", "tok-b-" + tableId, null); await until(() => A.v && B.v);
+H.s.emit("sit", { seat: 0, buyIn: 200 }); A.s.emit("sit", { seat: 1, buyIn: 200 }); B.s.emit("sit", { seat: 2, buyIn: 200 }); await until(() => H.v.seats[2]);
 ok(H.v.seats[0]?.avatar === "🐼" && H.v.seats[1].avatar === "7", "avatars shown");
 B.s.emit("setAvatar", { avatar: "🐴" }); await wait(200); ok(H.v.seats[2].avatar === "🐴", "setAvatar");
 H.s.emit("host:config", { variant: "plo4-8" }); await wait(200); ok(H.v.config.variant === "plo4-8", "one-step variant switch");
