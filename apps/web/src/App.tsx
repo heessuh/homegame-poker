@@ -1,3 +1,4 @@
+import { useDealerWatch } from "./DealerLog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import type { Socket } from "socket.io-client";
@@ -163,6 +164,10 @@ function MockRoom({ showToast, avatar, onAvatar }: { showToast: (m: string) => v
       (args[1] as (r: unknown) => void)(base ? { ...base, handNumber: num } : null);
       return;
     }
+    if (ev === "getDealerLog") {
+      (args[0] as (l: unknown[]) => void)([]);
+      return;
+    }
     if (ev === "getLog") {
       const f = fixturesRef.current?.[idRef.current];
       const lines = f ? [...f.log, ...f.log, ...f.log].map((l, i) => `[${String(i + 1).padStart(3, "0")}] ${l}`) : [];
@@ -213,6 +218,7 @@ function AmountPrompt(props: { title: string; min: number; max: number; cta: str
 
 function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; send: Send; connected: boolean; avatar: string | null; onAvatar: (a: string | null) => void }) {
   setMoneyMode(view.config);
+  const dealerWatch = useDealerWatch(view, send);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("log");
   const [sitSeat, setSitSeat] = useState<number | null>(null);
@@ -231,6 +237,12 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
 
   return (
     <div className={`room ${open ? "panel-open" : ""}`}>
+      {dealerWatch.alert && (
+        <div className="ledger-banner" role="alert">
+          <span><b>Dealer log warning:</b> {dealerWatch.alert} The host’s record of actions may have been altered.</span>
+          <button className="btn small" onClick={dealerWatch.dismiss}>Dismiss</button>
+        </div>
+      )}
       {view.siteNotice && <div className="site-notice" role="status">{view.siteNotice}</div>}
       <header className="top">
         <div className="title">

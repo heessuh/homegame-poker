@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   DEFAULT_CONFIG,
   DEFAULT_HOUSE_LIMIT,
@@ -10,6 +10,8 @@ import {
   buildMaterial,
   commitDeck,
   deriveDeck,
+  ledgerGenesisInput,
+  ledgerHashInput,
   seedHash,
   isValidAvatar,
   legalActions,
@@ -17,6 +19,7 @@ import {
   startHand,
   timeoutAction,
   type Card,
+  type DealerEntry,
   type HandFair,
   type HandListItem,
   type HandRecord,
@@ -36,6 +39,8 @@ import {
   type TournamentView,
   type WinnerView,
 } from "@homegame/engine";
+
+type Rec = (summary: string, details?: Record<string, unknown>) => void;
 
 /** A request the user can fix; the message is shown to them verbatim. */
 export class UserError extends Error {
@@ -99,6 +104,8 @@ export interface Transfer {
   fromId: string;
   toId: string;
   amount: number;
+  /** The host who queued it (for the dealer ledger). */
+  by?: string;
 }
 
 export interface TourneyState {
@@ -143,6 +150,8 @@ export interface TableSnapshot {
   transfers: Transfer[];
   tournament: { status: TourneyState["status"]; levelIndex: number; levelsCompleted: number; levelRemainingMs: number; clockRunning: boolean } | null;
   log: string[];
+  /** Dealer ledger, oldest first. Append-only; never truncated. */
+  dealerLog?: DealerEntry[];
 }
 
 interface HandCtx {
@@ -163,6 +172,7 @@ interface HandCtx {
 
 const LOG_CAP = 20_000;
 const VIEW_LOG = 200;
+const VIEW_DEALER_LOG = 100;
 const HISTORY_CAP = 2000;
 const SNAPSHOT_VERSION = 1;
 const FIRST_HAND_DELAY = 1000;
@@ -214,6 +224,35 @@ const ordinal = (n: number): string => {
   return `${n}${({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
 };
 
+const sha256Hex = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
+
+const CONFIG_LABELS: Record<string, string> = {
+  variant: "game", smallBlind: "small blind", bigBlind: "big blind", maxSeats: "seats", actionTimeoutSec: "action timer (s)",
+  extensionSec: "time extension (s)", minBuyIn: "minimum buy-in", maxBuyIn: "maximum buy-in", awardMode: "award mode", mode: "mode",
+  money: "money format", tournament: "tournament", stud: "stud stakes", houseLimit: "house limit",
+};
+const MONEY_KEYS = new Set(["smallBlind", "bigBlind", "minBuyIn", "maxBuyIn", "stud.ante", "stud.minBet", "stud.maxBet", "stud.maxBetLastRound", "stud.downExchangeCost", "houseLimit.minBet", "houseLimit.maxBet"]);
+
+/** Flattens two configs into [{path, from, to}] for every setting that differs (stud/houseLimit/tournament one level deep). */
+function diffConfig(a: TableConfig, b: TableConfig): { path: string; from: unknown; to: unknown }[] {
+  const out: { path: string; from: unknown; to: unknown }[] = [];
+  const ra = a as unknown as Record<string, unknown>;
+  const rb = b as unknown as Record<string, unknown>;
+  for (const k of Object.keys(rb)) {
+    const x = ra[k];
+    const y = rb[k];
+    if (JSON.stringify(x) === JSON.stringify(y)) continue;
+    if ((k === "stud" || k === "houseLimit" || k === "tournament") && x && y && typeof x === "object" && typeof y === "object") {
+      for (const kk of Object.keys(y as object)) {
+        const xv = (x as Record<string, unknown>)[kk];
+        const yv = (y as Record<string, unknown>)[kk];
+        if (JSON.stringify(xv) !== JSON.stringify(yv)) out.push({ path: k + "." + kk, from: xv, to: yv });
+      }
+    } else out.push({ path: k, from: x, to: y });
+  }
+  return out;
+}
+
 const isInt = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n);
 
 export class Table {
@@ -241,6 +280,8 @@ export class Table {
   private handCounter = 0;
   private buttonSeat = -1;
   private log: string[] = [];
+  private dealerLog: DealerEntry[] = [];
+  private dealerHead = "";
   private startTimer: unknown = null;
   private actionTimer: unknown = null;
   private endedAt: number | null = null;
@@ -267,6 +308,7 @@ export class Table {
     this.config = mergeConfig(DEFAULT_CONFIG, opts.config);
     if (this.config.mode === "tournament") this.t = this.newTourney();
     this.idleSince = this.now();
+    this.dealerHead = sha256Hex(ledgerGenesisInput(this.tableId));
     if (opts.snapshot) this.load(opts.snapshot);
   }
 
@@ -309,6 +351,7 @@ export class Table {
           }
         : null,
       log: this.log,
+      dealerLog: this.dealerLog,
     };
   }
 
@@ -339,6 +382,8 @@ export class Table {
     this.nextDelay = s.nextDelay;
     this.transfers = s.transfers ?? [];
     this.log = s.log ?? [];
+    this.dealerLog = s.dealerLog ?? [];
+    if (this.dealerLog.length) this.dealerHead = this.dealerLog[this.dealerLog.length - 1]!.hash;
     this.t = s.tournament
       ? { status: s.tournament.status, levelIndex: s.tournament.levelIndex, levelsCompleted: s.tournament.levelsCompleted, levelEndsAt: null, levelRemainingMs: s.tournament.levelRemainingMs }
       : null;
@@ -360,10 +405,13 @@ export class Table {
 
   /** Returns the settings every new table should start with (the latest, including a change waiting for the next hand). */
   hostSaveDefaults(playerId: string): TableConfig {
-    this.requireHost(playerId);
-    this.addLog("Saved these settings as the house defaults");
-    this.changed();
-    return cloneConfig(this.pendingConfig ?? this.config);
+    const saved = cloneConfig(this.pendingConfig ?? this.config);
+    this.asHost(playerId, "saveDefaults", (host, rec) => {
+      this.addLog("Saved these settings as the house defaults");
+      rec(`${host.name} saved the table settings as the house defaults`, { settings: saved });
+      this.changed();
+    });
+    return saved;
   }
 
   /**
@@ -427,7 +475,10 @@ export class Table {
       };
       this.players.set(id, p);
       this.byToken.set(token, id);
-      if (!this.hostId) this.hostId = id;
+      if (!this.hostId) {
+        this.hostId = id;
+        this.appendDealer(p, "host", `${p.name} became the host`, { reason: "first player at the table", newHostId: id, newHostName: p.name });
+      }
       this.addLog(`${p.name} joined the table`);
     }
     p.connections++;
@@ -503,10 +554,42 @@ export class Table {
     return p;
   }
 
-  private requireHost(playerId: string): Player {
+  /**
+   * The ONLY caller of the host check. Every host-only action runs through here, so it cannot skip the dealer
+   * ledger: the body calls rec(summary, details) at the point it changes something; if it forgets, a generic
+   * entry is written anyway. A body that throws (rejected action) writes nothing.
+   */
+  private asHost(playerId: string, action: string, body: (host: Player, rec: Rec) => void): void {
     const p = this.get(playerId);
     if (this.hostId !== p.id) throw new UserError("Only the host can do that.");
-    return p;
+    let recorded = false;
+    body(p, (summary, details = {}) => {
+      recorded = true;
+      this.appendDealer(p, action, summary, details);
+    });
+    if (!recorded) this.appendDealer(p, action, `${p.name} used the dealer action “${action}”`, {});
+  }
+
+  /** Appends one hash-chained entry (see packages/engine/src/ledger.ts for the exact hashing). */
+  private appendDealer(host: { id: string; name: string }, action: string, summary: string, details: Record<string, unknown>): void {
+    const body = {
+      seq: this.dealerLog.length + 1,
+      at: this.now(),
+      hostId: host.id,
+      hostName: host.name,
+      action,
+      summary,
+      details: JSON.parse(JSON.stringify(details)) as Record<string, unknown>,
+      prevHash: this.dealerHead,
+    };
+    const entry: DealerEntry = { ...body, hash: sha256Hex(ledgerHashInput(body)) };
+    this.dealerLog.push(entry);
+    this.dealerHead = entry.hash;
+  }
+
+  /** The complete dealer ledger, oldest first (a copy). */
+  getDealerLog(): DealerEntry[] {
+    return this.dealerLog.map((e) => ({ ...e }));
   }
 
   // ------------------------------------------------------------------ seats
@@ -643,6 +726,9 @@ export class Table {
     this.hostId = next.id;
     this.hostOfflineSince = null;
     this.addLog(`${next.name} is now the host`);
+    this.appendDealer(next, "handoff", `Host passed from ${host.name} to ${next.name} (${host.name} was offline for a minute)`, {
+      reason: "host offline", fromId: host.id, fromName: host.name, toId: next.id, toName: next.name,
+    });
   }
 
   private clearHostTimer(): void {
@@ -659,43 +745,62 @@ export class Table {
   }
 
   hostStart(playerId: string): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "start", (host, rec) => this.doStart(host, rec));
+  }
+
+  private doStart(host: Player, rec: Rec): void {
     if (this.budgetNotice !== null) throw new UserError(this.budgetNotice);
     if (this.status === "playing") throw new UserError("The game is already running.");
     if (this.isTourney() && this.tourney().status !== "running") {
       if (this.seated().length < 2) throw new UserError("At least 2 players must be seated to start a tournament.");
       this.status = "playing";
+      rec(`${host.name} started the tournament with ${this.seated().length} players`, { mode: "tournament", players: this.seated().map((p) => p.name) });
       this.startTournament();
     } else {
       this.status = "playing";
       this.addLog("The host started the game");
+      rec(`${host.name} started the game`, { mode: this.config.mode, players: this.seated().map((p) => p.name) });
     }
     this.syncClock();
     this.changed();
   }
 
   hostPause(playerId: string, paused: boolean): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, paused === false ? "resume" : "pause", (host, rec) => this.doPause(host, rec, paused));
+  }
+
+  private doPause(host: Player, rec: Rec, paused: boolean): void {
     if (typeof paused !== "boolean") throw new UserError("Invalid request.");
     if (paused) {
       if (this.status === "waiting") throw new UserError("The game has not started yet.");
       this.status = "paused";
       this.clearStartTimer();
       this.addLog("The host paused the game (the current hand will finish)");
+      rec(`${host.name} paused the game (the current hand finishes first)`, { before: "playing", after: "paused" });
     } else {
       if (this.budgetNotice !== null) throw new UserError(this.budgetNotice);
       if (this.status !== "paused") throw new UserError("The game is not paused.");
       this.status = "playing";
       this.addLog("The host resumed the game");
+      rec(`${host.name} resumed the game`, { before: "paused", after: "playing" });
     }
     this.syncClock();
     this.changed();
   }
 
   hostConfig(playerId: string, patch: Partial<TableConfig>): void {
-    this.requireHost(playerId);
+    const p = patch as Partial<TableConfig> | null | undefined;
+    const cur = this.pendingConfig ?? this.config;
+    // The action id depends on what changes: switching the mode or the game gets its own id.
+    const action = p && typeof p === "object" && "mode" in p && p.mode !== cur.mode ? "mode"
+      : p && typeof p === "object" && "variant" in p && p.variant !== cur.variant ? "variant" : "settings";
+    this.asHost(playerId, action, (host, rec) => this.doConfig(host, rec, patch));
+  }
+
+  private doConfig(host: Player, rec: Rec, patch: Partial<TableConfig>): void {
     if (!patch || typeof patch !== "object") throw new UserError("Invalid settings.");
-    const next: TableConfig = { ...(this.pendingConfig ?? this.config) };
+    const base = this.pendingConfig ?? this.config;
+    const next: TableConfig = { ...base };
     for (const key of Object.keys(patch)) {
       if (!(CONFIG_KEYS as readonly string[]).includes(key)) throw new UserError(`Unknown setting: ${key}`);
       const val = (patch as Record<string, unknown>)[key];
@@ -717,6 +822,17 @@ export class Table {
     if (tourneyChange && (this.handOpen() || this.t?.status === "running")) {
       throw new UserError("Tournament settings can only change when no tournament is running and no hand is in progress.");
     }
+    const changes = diffConfig(base, next);
+    const money = (path: string, v: unknown): string => {
+      if (typeof v === "number" && MONEY_KEYS.has(path) && next.money === "cents" && next.mode === "cash") return formatCents(v);
+      if (path === "variant" && typeof v === "string") return VARIANTS[v as keyof typeof VARIANTS]?.name ?? v;
+      if (path === "tournament.levels" && Array.isArray(v)) return v.length + " levels";
+      return typeof v === "object" ? JSON.stringify(v) : String(v);
+    };
+    const label = (path: string): string => CONFIG_LABELS[path] ?? path.replace(/^(stud|houseLimit|tournament)\./, (_m, g: string) => (CONFIG_LABELS[g] ?? g) + " ");
+    const what = changes.length === 0 ? "re-saved the same settings"
+      : "changed " + changes.map((c) => label(c.path) + " from " + money(c.path, c.from) + " to " + money(c.path, c.to)).join("; ");
+    const recChanges = (appliesNextHand: boolean): void => rec(host.name + " " + what + (appliesNextHand ? " (takes effect next hand)" : ""), { changes, appliesNextHand });
     if (!this.handOpen()) {
       if (next.mode !== this.config.mode) {
         // Keep the cash ledger honest across mode switches: cash chips are cashed out before a
@@ -734,11 +850,14 @@ export class Table {
       this.pendingConfig = null;
       this.syncMode();
       this.addLog("Table settings updated");
+      recChanges(false);
     } else if (JSON.stringify(next) === JSON.stringify(this.config)) {
       this.pendingConfig = null;
+      recChanges(false);
     } else {
       this.pendingConfig = next;
       this.addLog("Table settings will change next hand");
+      recChanges(true);
     }
     this.changed();
   }
@@ -815,12 +934,16 @@ export class Table {
   }
 
   hostSitOut(playerId: string, targetId: string, sittingOut: boolean): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "sitOut", (host, rec) => this.doSitOut(host, rec, targetId, sittingOut));
+  }
+
+  private doSitOut(host: Player, rec: Rec, targetId: string, sittingOut: boolean): void {
     const p = this.get(targetId);
     if (p.seat === null) throw new UserError(`${p.name} is not seated.`);
     if (typeof sittingOut !== "boolean") throw new UserError("Invalid request.");
     if (!sittingOut && p.stack <= 0) throw new UserError(`${p.name} needs chips before sitting back in.`);
     p.busted = false;
+    rec(`${host.name} marked ${p.name} as ${sittingOut ? "sitting out" : "back in"}`, { playerId: p.id, playerName: p.name, before: p.sittingOut, after: sittingOut, stack: p.stack });
     if (p.sittingOut !== sittingOut) this.addLog(`The dealer marked ${p.name} as ${sittingOut ? "sitting out" : "back in"}`);
     if (!sittingOut) p.timeouts = 0;
     p.sittingOut = sittingOut;
@@ -829,10 +952,17 @@ export class Table {
   }
 
   hostKick(playerId: string, targetId: string): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "remove", (host, rec) => this.doKick(host, rec, playerId, targetId));
+  }
+
+  private doKick(host: Player, rec: Rec, playerId: string, targetId: string): void {
     const t = this.players.get(targetId);
     if (!t) throw new UserError("That player is not at this table.");
     if (t.id === playerId) throw new UserError("You cannot kick yourself.");
+    const queued = t.seat !== null && this.inLiveHand(t);
+    rec(`${host.name} removed ${t.name} from the table${t.seat !== null ? ` (stack ${this.m(t.stack)})` : ""}${queued ? ", effective after this hand" : ""}`, {
+      playerId: t.id, playerName: t.name, seated: t.seat !== null, stack: t.stack, afterHand: queued,
+    });
     t.banned = true;
     if (t.seat !== null) {
       if (this.inLiveHand(t)) {
@@ -848,16 +978,28 @@ export class Table {
   }
 
   hostAdjustStack(playerId: string, targetId: string, delta: number): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, isInt(delta) && delta < 0 ? "takeChips" : "rebuy", (host, rec) => this.doAdjust(host, rec, targetId, delta));
+  }
+
+  private doAdjust(host: Player, rec: Rec, targetId: string, delta: number): void {
     const t = this.players.get(targetId);
     if (!t || t.seat === null) throw new UserError("That player is not seated.");
     if (!isInt(delta) || delta === 0) throw new UserError("Enter a non-zero whole number.");
+    const stackBefore = t.stack;
+    const verb = delta > 0 ? "gave" : "took";
+    const prep = delta > 0 ? "to" : "from";
     if (this.inLiveHand(t)) {
       if (t.stack + t.adjustQueued + delta < 0) throw new UserError("That would take the stack below zero.");
+      rec(`${host.name} ${verb} ${this.m(Math.abs(delta))} ${prep} ${t.name}’s stack, applied after this hand`, {
+        playerId: t.id, playerName: t.name, delta, stackBefore, queued: true, tournament: this.isTourney(),
+      });
       t.adjustQueued += delta;
       this.addLog(`The host will adjust ${t.name}'s stack by ${delta > 0 ? "+" : ""}${this.m(delta)} after this hand`);
     } else {
       this.applyAdjust(t, delta);
+      rec(`${host.name} ${verb} ${this.m(Math.abs(delta))} ${prep} ${t.name}’s stack (${this.m(stackBefore)} to ${this.m(t.stack)})`, {
+        playerId: t.id, playerName: t.name, delta, stackBefore, stackAfter: t.stack, queued: false, tournament: this.isTourney(),
+      });
       this.eliminate();
     }
     this.changed();
@@ -1246,9 +1388,17 @@ export class Table {
       if (!from || !to) continue;
       if (from.seat === null || to.seat === null || from.stack < tr.amount) {
         this.addLog(`Dealer's move of ${this.m(tr.amount)} from ${from.name} to ${to.name} was skipped (not enough chips)`);
+        this.appendDealer(this.players.get(tr.by ?? "") ?? this.players.get(this.hostId ?? "") ?? from, "transferSkipped",
+          `The queued move of ${this.m(tr.amount)} from ${from.name} to ${to.name} was skipped (not enough chips)`,
+          { fromId: from.id, fromName: from.name, toId: to.id, toName: to.name, amount: tr.amount, fromStack: from.stack });
         continue;
       }
+      const fromBefore = from.stack;
+      const toBefore = to.stack;
       this.moveChips(from, to, tr.amount);
+      this.appendDealer(this.players.get(tr.by ?? "") ?? this.players.get(this.hostId ?? "") ?? from, "transferApplied",
+        `The queued move of ${this.m(tr.amount)} from ${from.name} to ${to.name} was applied`,
+        { fromId: from.id, fromName: from.name, toId: to.id, toName: to.name, amount: tr.amount, fromBefore, fromAfter: from.stack, toBefore, toAfter: to.stack });
     }
   }
 
@@ -1271,7 +1421,10 @@ export class Table {
   }
 
   hostAward(playerId: string, awards: unknown): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "award", (host, rec) => this.doAward(host, rec, awards));
+  }
+
+  private doAward(host: Player, rec: Rec, awards: unknown): void {
     const pa = this.pendingAward;
     if (!pa) throw new UserError("There is no pot waiting to be awarded.");
     if (!Array.isArray(awards)) throw new UserError("Invalid request.");
@@ -1298,6 +1451,13 @@ export class Table {
       parts.push(`${this.m(amount)} to ${p.name}`);
     }
     this.addLog(`Dealer awards ${parts.join(", ")}`);
+    rec(`${host.name} awarded hand #${pa.handNumber}’s pot of ${this.m(pa.amount)}: ${parts.join(", ")}`, {
+      handNumber: pa.handNumber,
+      pot: pa.amount,
+      awards: winners.map((w) => ({ playerId: w.playerId, name: this.players.get(w.playerId)?.name ?? "?", amount: w.amount })),
+      suggested: pa.suggested.map((x) => ({ playerId: x.playerId, name: this.players.get(x.playerId)?.name ?? "?", amount: x.amount })),
+      matchedSuggestion: pa.suggested.length === winners.length && pa.suggested.every((x) => winners.some((w) => w.playerId === x.playerId && w.amount === x.amount)),
+    });
     h.awarded = winners;
     if (this.lastHand) {
       this.lastHand = { ...this.lastHand, winners };
@@ -1310,18 +1470,30 @@ export class Table {
   }
 
   hostTransfer(playerId: string, fromId: unknown, toId: unknown, amount: unknown): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "transfer", (host, rec) => this.doTransfer(host, rec, fromId, toId, amount));
+  }
+
+  private doTransfer(host: Player, rec: Rec, fromId: unknown, toId: unknown, amount: unknown): void {
     const from = typeof fromId === "string" ? this.players.get(fromId) : undefined;
     const to = typeof toId === "string" ? this.players.get(toId) : undefined;
     if (!from || !to || from.seat === null || to.seat === null) throw new UserError("Both players must be seated.");
     if (from.id === to.id) throw new UserError("Pick two different players.");
     if (!isInt(amount) || amount <= 0) throw new UserError("Enter a positive whole number of chips.");
     if (this.handOpen()) {
-      this.transfers.push({ fromId: from.id, toId: to.id, amount });
+      rec(`${host.name} moved ${this.m(amount)} from ${from.name} to ${to.name}, applied after this hand`, {
+        fromId: from.id, fromName: from.name, toId: to.id, toName: to.name, amount, queued: true, fromStack: from.stack, toStack: to.stack,
+      });
+      this.transfers.push({ fromId: from.id, toId: to.id, amount, by: host.id });
       this.addLog(`Dealer will move ${this.m(amount)} from ${from.name} to ${to.name} after this hand`);
     } else {
       if (from.stack < amount) throw new UserError(`${from.name} only has ${this.m(from.stack)}.`);
+      const fromBefore = from.stack;
+      const toBefore = to.stack;
       this.moveChips(from, to, amount);
+      rec(`${host.name} moved ${this.m(amount)} from ${from.name} (${this.m(fromBefore)} to ${this.m(from.stack)}) to ${to.name} (${this.m(toBefore)} to ${this.m(to.stack)})`, {
+        fromId: from.id, fromName: from.name, toId: to.id, toName: to.name, amount, queued: false,
+        fromBefore, fromAfter: from.stack, toBefore, toAfter: to.stack,
+      });
       this.eliminate();
     }
     this.changed();
@@ -1330,12 +1502,17 @@ export class Table {
   // ------------------------------------------------------------------ timers (host)
 
   hostPlayerTimer(playerId: string, targetId: unknown, seconds: unknown): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "playerTimer", (host, rec) => this.doPlayerTimer(host, rec, targetId, seconds));
+  }
+
+  private doPlayerTimer(host: Player, rec: Rec, targetId: unknown, seconds: unknown): void {
     const t = typeof targetId === "string" ? this.players.get(targetId) : undefined;
     if (!t) throw new UserError("That player is not at this table.");
     if (seconds !== null && !(isInt(seconds) && (seconds === 0 || (seconds >= 10 && seconds <= 300)))) {
       throw new UserError("A player timer must be off (0), the table default, or 10 to 300 seconds.");
     }
+    const desc = (v: number | null): string => (v === null ? "the table default" : v === 0 ? "no limit" : v + "s");
+    rec(`${host.name} set ${t.name}’s timer from ${desc(t.timerSec)} to ${desc(seconds as number | null)}`, { playerId: t.id, playerName: t.name, before: t.timerSec, after: seconds });
     t.timerSec = seconds as number | null;
     this.addLog(`Dealer set ${t.name}'s timer to ${seconds === null ? "the table default" : seconds === 0 ? "no limit" : `${seconds}s`}`);
     const h = this.hand;
@@ -1353,7 +1530,10 @@ export class Table {
   }
 
   hostAddTime(playerId: string, targetId: unknown, seconds: unknown): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "addTime", (host, rec) => this.doAddTime(host, rec, targetId, seconds));
+  }
+
+  private doAddTime(host: Player, rec: Rec, targetId: unknown, seconds: unknown): void {
     if (!isInt(seconds) || seconds < 10 || seconds > 300) throw new UserError("Add 10 to 300 seconds.");
     const t = this.onClock(targetId);
     const h = this.hand!;
@@ -1361,14 +1541,17 @@ export class Table {
     h.actionDeadline += seconds * 1000;
     this.scheduleActionTimer(Math.max(0, h.actionDeadline - this.now()));
     this.addLog(`Dealer gave ${t.name} ${seconds} more seconds`);
+    rec(`${host.name} gave ${t.name} ${seconds} more seconds on the clock`, { playerId: t.id, playerName: t.name, seconds });
     this.changed();
   }
 
   hostForceTimeout(playerId: string, targetId: unknown): void {
-    this.requireHost(playerId);
-    this.onClock(targetId);
-    this.onActionTimeout(false);
-    this.changed();
+    this.asHost(playerId, "forceTimeout", (host, rec) => {
+      const t = this.onClock(targetId);
+      rec(`${host.name} timed out ${t.name} immediately`, { playerId: t.id, playerName: t.name });
+      this.onActionTimeout(false);
+      this.changed();
+    });
   }
 
   // ------------------------------------------------------------------ tournament
@@ -1491,11 +1674,15 @@ export class Table {
   }
 
   hostTournamentLevel(playerId: string, delta: unknown): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "tournamentLevel", (host, rec) => this.doTournamentLevel(host, rec, delta));
+  }
+
+  private doTournamentLevel(host: Player, rec: Rec, delta: unknown): void {
     const t = this.runningTourney();
     if (delta !== 1 && delta !== -1) throw new UserError("Invalid request.");
     const idx = Math.max(0, Math.min(t.levelIndex + delta, this.config.tournament.levels.length - 1));
     if (idx === t.levelIndex) throw new UserError(delta > 0 ? "Already at the last level." : "Already at the first level.");
+    const fromLevel = t.levelIndex;
     t.levelIndex = idx;
     t.levelsCompleted = Math.max(0, t.levelsCompleted + delta);
     t.levelRemainingMs = this.levelAt(idx).minutes * 60_000;
@@ -1504,16 +1691,25 @@ export class Table {
       this.armLevelTimer();
     }
     const l = this.levelAt(idx);
+    rec(`${host.name} moved the blinds from level ${fromLevel + 1} to level ${idx + 1} (${l.smallBlind}/${l.bigBlind}, applies next hand)`, {
+      fromLevel: fromLevel + 1, toLevel: idx + 1, smallBlind: l.smallBlind, bigBlind: l.bigBlind,
+    });
     this.addLog(`The host moved to level ${idx + 1}: ${l.smallBlind}/${l.bigBlind} (applies next hand)`);
     this.changed();
   }
 
   hostTournamentClock(playerId: string, addMs: unknown): void {
-    this.requireHost(playerId);
+    this.asHost(playerId, "tournamentClock", (host, rec) => this.doTournamentClock(host, rec, addMs));
+  }
+
+  private doTournamentClock(host: Player, rec: Rec, addMs: unknown): void {
     const t = this.runningTourney();
     if (!isInt(addMs) || Math.abs(addMs) > 86_400_000) throw new UserError("Invalid time change.");
     const cur = t.levelEndsAt !== null ? t.levelEndsAt - this.now() : t.levelRemainingMs;
     const rem = Math.max(1000, cur + addMs);
+    rec(`${host.name} ${addMs >= 0 ? "added" : "removed"} ${Math.round(Math.abs(addMs) / 1000)}s ${addMs >= 0 ? "to" : "from"} the level clock`, {
+      addMs, remainingBeforeMs: Math.max(0, cur), remainingAfterMs: rem,
+    });
     if (t.levelEndsAt !== null) {
       t.levelEndsAt = this.now() + rem;
       this.armLevelTimer();
@@ -1684,6 +1880,7 @@ export class Table {
       lastHand: this.lastHand,
       ledger,
       log: this.log.slice(-VIEW_LOG),
+      dealerLog: { count: this.dealerLog.length, headHash: this.dealerHead, tail: this.dealerLog.slice(-VIEW_DEALER_LOG) },
       pendingAward: this.pendingAward ? { ...this.pendingAward, candidatePlayerIds: [...this.pendingAward.candidatePlayerIds], suggested: this.pendingAward.suggested.map((x) => ({ ...x })) } : null,
       handList: this.handList(),
       canExtend: this.canExtendNow(me),
