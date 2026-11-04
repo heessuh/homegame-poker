@@ -1,5 +1,7 @@
 # Home Game Poker
 
+**Live beta:** https://homegame-poker.fly.dev
+
 A private, browser-based poker room for a group of friends. No downloads, no accounts: the host opens a table and shares the link.
 
 **Games:** No-Limit Texas Hold’em, Pot-Limit Omaha High (4- and 5-card), and Pot-Limit Omaha Hi/Lo 8-or-better (4- and 5-card).
