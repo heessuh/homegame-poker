@@ -541,3 +541,6 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 .review-players li.won .rp-name { color: var(--gold); }
 .review-note { margin: 8px 0 0; color: var(--gold); }
 @media (max-width: 520px) { .review-players li { grid-template-columns: 1fr auto; } .review-players li .rp-out { grid-column: 1 / -1; } }
+
+.buildinfo { margin-top: 24px; font-size: 12px; opacity: 0.6; text-align: center; }
+.buildinfo a { color: inherit; }

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @homegame/engine && npm run build -w @homegame/web && npm run build -w @homegame/server",
+    "build:web": "npm run build -w @homegame/engine && npm run build -w @homegame/web",
     "dev:server": "npm run dev -w @homegame/server",
     "dev:web": "npm run dev -w @homegame/web",
     "test": "npm test -w @homegame/engine",
@@ -18,9 +19,12 @@
     "test:server": "npm test -w @homegame/server",
     "test:games": "node apps/server/test/games-e2e.mjs --json test-reports/games-local.json",
     "test:live": "node apps/server/test/games-e2e.mjs --url https://mochapoker.fly.dev --hands 3 --json test-reports/games-live.json",
-    "test:all": "npm test && npm run test:server && npm run test:games"
+    "test:all": "npm test && npm run test:server && npm run test:scripts && npm run test:games",
+    "check-site": "node scripts/check-site.mjs",
+    "test:scripts": "node --test \"scripts/test/*.test.mjs\""
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22 <23",
+    "npm": ">=10"
   }
 }

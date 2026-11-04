@@ -16,6 +16,7 @@ import {
   type RngAuditReport,
   type SessionReview,
 } from "@homegame/engine";
+import { buildWebManifest, emptyWebManifest, type WebManifest } from "./manifest.js";
 import { IDLE_DELETE_MS, Store, type FsLike } from "./persist.js";
 import { RngAudit } from "./rngAudit.js";
 import { buildSessionReview } from "./luckWork.js";
@@ -46,6 +47,12 @@ export interface ServerOptions {
   budget?: Partial<UsageConfig>;
   /** Token for /admin/usage. Default: $USAGE_TOKEN (the endpoints answer 404 when it is unset). */
   usageToken?: string;
+  /** Directory of the built web app. Default: apps/web/dist next to the server build. */
+  webDir?: string;
+  /** Git commit this server was built from. Default: $GIT_COMMIT (set by the Docker build). */
+  commit?: string | null;
+  /** When the image was built. Default: $BUILT_AT. */
+  builtAt?: string | null;
 }
 
 export async function startServer(port: number, opts: ServerOptions = {}): Promise<{ close: () => Promise<void>; port: number; usage: UsageMeter }> {
@@ -98,9 +105,19 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
     meter.markNotified(level).then((notified) => res.json({ ok: true, notified }), () => res.status(500).json({ error: "save failed" }));
   });
   app.get("/healthz", (_req, res) => res.json({ ok: true }));
-  if (existsSync(webDist)) {
-    app.use(express.static(webDist));
-    app.get("*", (_req, res) => res.sendFile(join(webDist, "index.html")));
+  const webDir = opts.webDir ?? webDist;
+  const webManifest: WebManifest = existsSync(webDir) ? buildWebManifest(webDir) : emptyWebManifest();
+  const commit = opts.commit === undefined ? (process.env.GIT_COMMIT || null) : opts.commit;
+  const builtAt = opts.builtAt === undefined ? (process.env.BUILT_AT || null) : opts.builtAt;
+  // Build identity for provenance checks (docs/PROVENANCE.md): which commit this is and the hash of every web file served.
+  app.get("/version", (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ commit, builtAt, web: webManifest });
+  });
+  if (existsSync(webDir)) {
+    // No compression middleware on purpose: every client gets exactly the bytes listed in the manifest, whatever Accept-Encoding says.
+    app.use(express.static(webDir, { dotfiles: "ignore" }));
+    app.get("*", (_req, res) => res.sendFile(join(webDir, "index.html")));
   }
 
   const http = createServer(app);
