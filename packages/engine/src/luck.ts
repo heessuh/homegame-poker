@@ -307,13 +307,26 @@ export interface EquityResult {
  * cards nobody holds. `board` is what is showing now (0, 3 or 4 cards). Pots with fewer than two eligible
  * players are ignored. Handles hi/lo splits and the variant's low rule.
  */
-export function runoutEquity(
+export function runoutEquity(variantId: VariantId, board: readonly Card[], hands: readonly { id: string; hole: readonly Card[] }[], pots: readonly PotView[], opt: EquityOptions = {}): EquityResult {
+  return drive(runoutEquityGen(variantId, board, hands, pots, opt));
+}
+
+/** Runs a generator to the end. */
+function drive<T>(g: Generator<void, T>): T {
+  for (;;) {
+    const n = g.next();
+    if (n.done) return n.value;
+  }
+}
+
+/** Same as runoutEquity, but yields after every single runout so a caller can spread the work over time. */
+export function* runoutEquityGen(
   variantId: VariantId,
   board: readonly Card[],
   hands: readonly { id: string; hole: readonly Card[] }[],
   pots: readonly PotView[],
   opt: EquityOptions = {},
-): EquityResult {
+): Generator<void, EquityResult> {
   const v = VARIANTS[variantId];
   const needLow = splitOf(v) !== "high";
   const need = 5 - board.length;
@@ -346,19 +359,20 @@ export function runoutEquity(
 
   let runouts = 0;
   if (exact) {
-    const rec = (start: number, left: number): void => {
-      if (left === 0) {
-        one();
-        runouts++;
-        return;
-      }
-      for (let i = start; i <= pool.length - left; i++) {
-        full.push(pool[i]!);
-        rec(i + 1, left - 1);
-        full.pop();
-      }
-    };
-    rec(0, need);
+    // Every combination of `need` cards from the pool, in order.
+    const idx = Array.from({ length: need }, (_, i) => i);
+    for (;;) {
+      for (let j = 0; j < need; j++) full.push(pool[idx[j]!]!);
+      one();
+      for (let j = 0; j < need; j++) full.pop();
+      runouts++;
+      yield;
+      let i = need - 1;
+      while (i >= 0 && idx[i] === pool.length - need + i) i--;
+      if (i < 0) break;
+      idx[i] = idx[i]! + 1;
+      for (let j = i + 1; j < need; j++) idx[j] = idx[j - 1]! + 1;
+    }
   } else {
     const rnd = mulberry32(hashSeed(opt.seed ?? "luck"));
     const samples = opt.samples ?? MC_SAMPLES;
@@ -373,6 +387,7 @@ export function runoutEquity(
       }
       one();
       for (let j = 0; j < need; j++) full.pop();
+      yield;
     }
     runouts = samples;
   }
@@ -383,54 +398,86 @@ export function runoutEquity(
 
 // ------------------------------------------------------------------ per hand
 
+/** The cheap part of a hand: who was dealt what, and who held the best river hand. Cached per record object. */
+export interface DealInfo {
+  ids: string[];
+  holes: Card[][];
+  board: Card[];
+  /** Credit for holding the best river hand, per id (sums to 1). */
+  credit: number[];
+}
+
 export interface HandLuck {
   ids: string[];
-  /** Credit for holding the best river hand, per id (sums to 1). */
   credit: number[];
   allIn?: {
     ids: string[];
     expected: number[];
     variance: number[];
+    /** What the showdown rules pay on the actual runout (not the dealer's manual award). */
     actual: number[];
     exact: boolean;
   };
 }
 
-const cache = new WeakMap<object, HandLuck | SkipReason>();
+const dealCache = new WeakMap<object, DealInfo | SkipReason>();
+const luckCache = new WeakMap<object, HandLuck | SkipReason>();
 
-/** Everything the report needs from one hand; computed once per record object. */
-export function handLuck(rec: LuckableHand, opt: EquityOptions = {}): HandLuck | SkipReason {
-  const hit = cache.get(rec);
+/** Reconstructs the deal and the best-hand credits (a millisecond or so); cached on the record object. */
+export function dealInfo(rec: LuckableHand): DealInfo | SkipReason {
+  const hit = dealCache.get(rec);
   if (hit !== undefined) return hit;
-  const res = computeHandLuck(rec, opt);
-  cache.set(rec, res);
+  const deal = reconstructDeal(rec);
+  const res: DealInfo | SkipReason = typeof deal === "string" ? deal : { ...deal, credit: bestHandCredits(rec.variant, deal.holes, deal.board) };
+  dealCache.set(rec, res);
   return res;
 }
 
-function computeHandLuck(rec: LuckableHand, opt: EquityOptions): HandLuck | SkipReason {
-  const deal = reconstructDeal(rec);
-  if (typeof deal === "string") return deal;
-  const out: HandLuck = { ids: deal.ids, credit: bestHandCredits(rec.variant, deal.holes, deal.board) };
+/** The finished result for a record if it has been computed, else undefined. Never computes. */
+export function peekHandLuck(rec: LuckableHand): HandLuck | SkipReason | undefined {
+  return luckCache.get(rec);
+}
+
+/** Everything the report needs from one hand; computed once per record object. */
+export function handLuck(rec: LuckableHand, opt: EquityOptions = {}): HandLuck | SkipReason {
+  const hit = luckCache.get(rec);
+  if (hit !== undefined) return hit;
+  return drive(handLuckGen(rec, opt));
+}
+
+/** handLuck as a generator that yields between small units of work (one runout at a time). Stores its result in the cache. */
+export function* handLuckGen(rec: LuckableHand, opt: EquityOptions = {}): Generator<void, HandLuck | SkipReason> {
+  const hit = luckCache.get(rec);
+  if (hit !== undefined) return hit;
+  const deal = dealInfo(rec);
+  if (typeof deal === "string") {
+    luckCache.set(rec, deal);
+    return deal;
+  }
+  yield;
+  const out: HandLuck = { ids: deal.ids, credit: deal.credit };
   const ro = rec.luck?.runout;
-  if (ro && ro.live.length >= 2 && ro.boardLen < 5 && rec.winners) {
+  if (ro && ro.live.length >= 2 && ro.boardLen < 5) {
     const idx = new Map(deal.ids.map((id, i) => [id, i]));
     if (ro.live.every((id) => idx.has(id))) {
       const hands = ro.live.map((id) => ({ id, hole: deal.holes[idx.get(id)!]! }));
-      const eq = runoutEquity(rec.variant, deal.board.slice(0, ro.boardLen), hands, ro.pots, { seed: `${rec.deckHash}|${rec.handNumber}`, ...opt });
-      const contested = new Set<number>();
-      ro.pots.forEach((p, i) => {
-        if (p.eligiblePlayerIds.length >= 2 && p.amount > 0) contested.add(i);
-      });
-      if (contested.size > 0 && eq.runouts > 0) {
-        const actual = ro.live.map(() => 0);
-        for (const w of rec.winners) {
-          const j = ro.live.indexOf(w.playerId);
-          if (j >= 0 && contested.has(w.potIndex)) actual[j] = actual[j]! + w.amount;
+      const eq = yield* runoutEquityGen(rec.variant, deal.board.slice(0, ro.boardLen), hands, ro.pots, { seed: `${rec.deckHash}|${rec.handNumber}`, ...opt });
+      if (eq.runouts > 0) {
+        // Actual: pay the contested pots by the showdown rules on the board that really came.
+        const v = VARIANTS[rec.variant];
+        const needLow = splitOf(v) !== "high";
+        const k = hands.length;
+        const sc = hands.map((h) => scorePlayer(v, h.hole, deal.board, needLow));
+        const pay = new Array<number>(k).fill(0);
+        for (const pot of ro.pots) {
+          const elig = pot.eligiblePlayerIds.map((id) => ro.live.indexOf(id)).filter((i) => i >= 0);
+          if (elig.length >= 2 && pot.amount > 0) addPotShares(v, elig, sc, pot.amount, pay);
         }
-        out.allIn = { ids: [...ro.live], expected: eq.mean, variance: eq.variance, actual, exact: eq.exact };
+        out.allIn = { ids: [...ro.live], expected: eq.mean, variance: eq.variance, actual: pay, exact: eq.exact };
       }
     }
   }
+  luckCache.set(rec, out);
   return out;
 }
 
@@ -465,12 +512,13 @@ const pOfZ = (z: number): number => chiSquareSf(z * z, 1);
  * Multiple testing: every per-player test that is actually run, plus the table-wide chi-square, counts toward
  * `tested`; verdicts use p x tested (Bonferroni), exactly like the main audit's `overall`.
  */
-export function buildLuckReport(history: readonly LuckableHand[], opt: EquityOptions = {}): LuckReport {
+export function buildLuckReport(history: readonly LuckableHand[], opt: EquityOptions = {}, cachedOnly = false): LuckReport {
   const accs = new Map<string, Acc>();
   const seen = new Set<string>();
   const skipped = { stud: 0, old: 0, bad: 0 };
   const names: Record<string, string> = {};
   let hands = 0;
+  let pending = 0;
   let allInTotal = 0;
   const get = (id: string): Acc => {
     let a = accs.get(id);
@@ -481,7 +529,11 @@ export function buildLuckReport(history: readonly LuckableHand[], opt: EquityOpt
     const key = `${rec.handNumber}@${rec.endedAt ?? 0}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const hl = handLuck(rec, opt);
+    const hl = cachedOnly ? peekHandLuck(rec) : handLuck(rec, opt);
+    if (hl === undefined) {
+      pending++;
+      continue;
+    }
     if (typeof hl === "string") {
       skipped[hl]++;
       continue;
@@ -566,5 +618,10 @@ export function buildLuckReport(history: readonly LuckableHand[], opt: EquityOpt
     };
   }).sort((x, y) => y.handsDealt - x.handsDealt || x.name.localeCompare(y.name));
 
-  return { hands, skipped, allInHands: allInTotal, minDealt: MIN_DEALT, minAllInHands: MIN_ALLIN_HANDS, players: out, table, overall };
+  return { hands, pending, skipped, allInHands: allInTotal, minDealt: MIN_DEALT, minAllInHands: MIN_ALLIN_HANDS, players: out, table, overall };
+}
+
+/** Marks a record as unusable (e.g. after an unexpected error) so callers stop waiting for it. */
+export function setHandLuckBad(rec: LuckableHand): void {
+  luckCache.set(rec, "bad");
 }

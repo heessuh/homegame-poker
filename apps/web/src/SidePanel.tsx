@@ -8,6 +8,7 @@ import type { Card, HandRecord } from "@homegame/engine";
 import { MoneyInput, Who, avatarOf } from "./ui";
 import { verifyFairness, type FairCheck } from "./fairness";
 import { RngAudit } from "./RngAudit";
+import { SessionReview } from "./SessionReview";
 import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
 export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "host" | "fairness";
@@ -102,6 +103,7 @@ function LastHand({ view }: { view: TableView }) {
 function History({ view, send }: { view: TableView; send: Send }) {
   const [sel, setSel] = useState<number | null>(null);
   const [rec, setRec] = useState<HandRecord | null | undefined>(undefined); // undefined = loading
+  const [mode, setMode] = useState<"list" | "review">("list");
   const open = (n: number) => {
     setSel(n);
     setRec(undefined);
@@ -117,8 +119,17 @@ function History({ view, send }: { view: TableView; send: Send }) {
       </div>
     );
   }
-  if (view.handList.length === 0) return <p className="muted">No finished hands yet.</p>;
+  const toggle = (
+    <div className="btn-row hmode" role="group" aria-label="History view">
+      <button className={`btn small${mode === "list" ? " on" : ""}`} aria-pressed={mode === "list"} onClick={() => setMode("list")}>Hands</button>
+      <button className={`btn small${mode === "review" ? " on" : ""}`} aria-pressed={mode === "review"} onClick={() => setMode("review")}>Session review</button>
+    </div>
+  );
+  if (mode === "review") return <div>{toggle}<SessionReview send={send} handCount={view.handList.length} /></div>;
+  if (view.handList.length === 0) return <div>{toggle}<p className="muted">No finished hands yet.</p></div>;
   return (
+    <div>
+    {toggle}
     <ul className="hlist">
       {view.handList.map((h) => (
         <li key={h.handNumber}>
@@ -132,6 +143,7 @@ function History({ view, send }: { view: TableView; send: Send }) {
         </li>
       ))}
     </ul>
+    </div>
   );
 }
 

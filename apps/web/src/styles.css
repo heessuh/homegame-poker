@@ -513,3 +513,13 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .luck-table tbody th { font-weight: 600; white-space: nowrap; }
 .luck-table .neg { color: var(--badtx); }
 .luck-table .pos { color: var(--ok); }
+
+.hmode { margin: 0 0 10px; }
+.review-filters, .review-pager { margin: 10px 0; flex-wrap: wrap; align-items: center; }
+.review-hand .review-board { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.review-undealt { display: inline-flex; align-items: center; gap: 6px; opacity: .75; }
+.review-players { list-style: none; margin: 8px 0 0; padding: 0; }
+.review-players li { display: grid; grid-template-columns: minmax(70px, 110px) auto 1fr auto; gap: 6px 10px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.review-players li.won .rp-name { color: var(--gold); }
+.review-note { margin: 8px 0 0; color: var(--gold); }
+@media (max-width: 520px) { .review-players li { grid-template-columns: 1fr auto; } .review-players li .rp-out { grid-column: 1 / -1; } }

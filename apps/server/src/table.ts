@@ -1191,7 +1191,7 @@ export class Table {
       endedAt: this.now(),
       // Lets the luck report rebuild the deal exactly (board games only).
       ...(VARIANTS[h.state.variant].kind === "stud" ? {} : {
-        luck: { v: 1 as const, dealOrder: orderFromButton(h.state).map((p) => p.playerId), ...(h.state.runout ? { runout: h.state.runout } : {}) },
+        luck: { v: 1 as const, dealOrder: orderFromButton(h.state).map((p) => p.playerId), foldStreet: { ...(h.state.foldedOn ?? {}) }, ...(h.state.runout ? { runout: h.state.runout } : {}) },
       }),
     };
     this.history.push(this.lastHand);

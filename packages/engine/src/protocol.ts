@@ -243,8 +243,12 @@ export interface RunoutSnapshot {
  * Deal: one card at a time to each player in `dealOrder` (starting left of the button), repeated `holeCards` times;
  * then burn 1 + flop 3, burn 1 + turn, burn 1 + river. Absent on records made before it existed.
  */
+export type FoldStreet = "preflop" | "flop" | "turn" | "river";
+
 export interface HandLuckData {
   v: 1;
+  /** The street each player folded on. Players not listed never folded (showdown, or everyone else folded). */
+  foldStreet?: Record<string, FoldStreet>;
   /** Everyone dealt in, in the order they received cards. */
   dealOrder: string[];
   runout?: RunoutSnapshot;
@@ -369,6 +373,8 @@ export interface ClientToServerEvents {
   /** Tournament clock controls while running. */
   "host:tournamentLevel": (p: { delta: 1 | -1 }) => void; // jump a level forward/back; new blinds apply next hand
   "host:tournamentClock": (p: { addMs: number }) => void; // add/remove time on the current level
+  /** Session review: every dealt hand with all hole cards revealed after the hand (the deck is public by then). Newest first, paged. */
+  getSessionReview: (p: { filter: ReviewFilter; page: number }, ack: (r: SessionReview) => void) => void;
   /** RNG audit: observed deal statistics against exact poker math, for this table or the whole site. */
   getRngAudit: (p: { scope: RngAuditScope }, ack: (report: RngAuditReport) => void) => void;
   /** Contribute a random client seed (32 hex chars) to the shuffle of hand nextHandNumber. One per player; later ones replace earlier ones until the deal. */
@@ -378,6 +384,51 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   state: (view: TableView) => void;
   error: (p: { message: string }) => void;
+}
+
+// ---- Session review ----
+export type ReviewFilter = "all" | "folded-best" | "won-without-best";
+
+export interface ReviewPlayer {
+  playerId: string;
+  name: string;
+  hole: Card[];
+  /** "unknown" for records made before fold streets were recorded. */
+  outcome: "folded" | "showdown" | "won-uncontested" | "unknown";
+  foldStreet: FoldStreet | null;
+  /** Held the best hand at a river showdown had nobody folded (ties count). */
+  best: boolean;
+  /** Chips won in the hand. */
+  won: number;
+}
+
+export type ReviewHand =
+  | { available: false; handNumber: number; variant: VariantId; endedAt: number; reason: "stud" | "old" | "bad" }
+  | {
+      available: true;
+      handNumber: number;
+      variant: VariantId;
+      endedAt: number;
+      /** The board that was actually dealt. */
+      board: Card[];
+      /** The complete five-card board, including cards never dealt because the hand ended early. */
+      fullBoard: Card[];
+      players: ReviewPlayer[];
+      /** Players who folded a hand that would have been best at the river. */
+      foldedBest: string[];
+      /** Everyone who won chips lacked the best hand. */
+      winnerNotBest: boolean;
+    };
+
+export interface SessionReview {
+  filter: ReviewFilter;
+  page: number;
+  pageSize: number;
+  /** Hands matching the filter. */
+  total: number;
+  /** All hands in the history. */
+  totalHands: number;
+  hands: ReviewHand[];
 }
 
 // ---- RNG audit ----
@@ -454,6 +505,8 @@ export interface LuckPlayerRow {
 export interface LuckReport {
   /** Board-game hands that were usable. */
   hands: number;
+  /** Hands still being worked out in the background; the numbers cover only the finished ones. */
+  pending: number;
   /** Hands left out: 5-Murder (stud), records made before the luck data existed, unusable records. */
   skipped: { stud: number; old: number; bad: number };
   allInHands: number;

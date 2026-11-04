@@ -162,6 +162,11 @@ function MockRoom({ showToast, avatar, onAvatar }: { showToast: (m: string) => v
       (args[1] as (r: unknown) => void)(base ? { ...base, handNumber: num } : null);
       return;
     }
+    if (ev === "getSessionReview") {
+      const q = args[0] as { filter: "all" | "folded-best" | "won-without-best" };
+      (args[1] as (r: unknown) => void)({ filter: q.filter, page: 0, pageSize: 10, total: 0, totalHands: 0, hands: [] });
+      return;
+    }
     if (ev === "getLog") {
       const f = fixturesRef.current?.[idRef.current];
       const lines = f ? [...f.log, ...f.log, ...f.log].map((l, i) => `[${String(i + 1).padStart(3, "0")}] ${l}`) : [];

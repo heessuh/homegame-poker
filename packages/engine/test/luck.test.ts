@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  VARIANTS, applyAction, bestHandCredits, fastHighScore, bestHigh, bestLow8, buildLuckReport, freshDeck, handLuck, legalActions,
+  VARIANTS, applyAction, bestHandCredits, fastHighScore, reviewHand, reviewMatches, bestHigh, bestLow8, buildLuckReport, freshDeck, handLuck, legalActions,
   orderFromButton, reconstructDeal, runoutEquity, startHand,
   type Card, type HandState, type LuckableHand, type PlayerAction, type VariantId,
 } from "../src/index.js";
@@ -52,7 +52,7 @@ function playHand(variant: VariantId, ids: string[], handNumber: number, deck: C
   const rec: LuckableHand = {
     handNumber, variant, deckHash: `hash${handNumber}`, reveal: { deck }, board: [...s.board], endedAt: 1_000 + handNumber,
     shown: s.outcome!.shown, winners: s.outcome!.winners, names,
-    luck: { v: 1, dealOrder: orderFromButton(s).map((p) => p.playerId), ...(s.runout ? { runout: s.runout } : {}) },
+    luck: { v: 1, dealOrder: orderFromButton(s).map((p) => p.playerId), foldStreet: { ...(s.foldedOn ?? {}) }, ...(s.runout ? { runout: s.runout } : {}) },
   };
   return { state: s, rec };
 }
@@ -331,5 +331,49 @@ describe("luck: the report", () => {
   it("never exposes cards", () => {
     const rep = buildLuckReport(simulate(20, "nlhe", 4, false));
     expect(JSON.stringify(rep)).not.toMatch(/"[2-9TJQKA][shdc]"/);
+  });
+});
+
+describe("luck: fold streets and review", () => {
+  it("records the street each player folded on", () => {
+    const r = rng(77);
+    let folds = 0;
+    const streets = new Set<string>();
+    for (let h = 1; h <= 150; h++) {
+      const ids = IDS.slice(0, 4);
+      let s = startHand({ handNumber: h, variant: "nlhe", buttonSeat: h % 4, smallBlind: 10, bigBlind: 20, deck: shuffled(r), seats: ids.map((playerId, seat) => ({ seat, playerId, stack: 2000 })) });
+      const oracle: Record<string, string> = {};
+      for (let g = 0; g < 300 && !s.outcome; g++) {
+        const p = s.players.find((x) => x.seat === s.toActSeat)!;
+        const l = legalActions(s, p.playerId)!;
+        const roll = r();
+        let act: PlayerAction;
+        if (l.canFold && l.callAmount > 0 && roll < 0.4) {
+          act = { type: "fold" };
+          oracle[p.playerId] = s.phase;
+        } else if (l.minRaiseTo !== null && roll < 0.55) act = { type: "raise", amount: l.minRaiseTo };
+        else act = l.canCheck ? { type: "check" } : { type: "call" };
+        s = applyAction(s, p.playerId, act);
+      }
+      expect(s.foldedOn ?? {}).toEqual(oracle);
+      for (const [id, st] of Object.entries(oracle)) {
+        folds++;
+        streets.add(st);
+        expect(s.players.find((p) => p.playerId === id)!.folded).toBe(true);
+      }
+      for (const p of s.players) if (!p.folded) expect((s.foldedOn ?? {})[p.playerId]).toBeUndefined();
+    }
+    expect(folds).toBeGreaterThan(50);
+    expect([...streets].sort()).toEqual(["flop", "preflop", "river", "turn"]);
+  });
+
+  it("reviewHand shows the dealt cards", () => {
+    const r = rng(2);
+    const { rec, state } = playHand("nlhe", IDS.slice(0, 4), 1, shuffled(r), r);
+    const rv = reviewHand(rec);
+    if (!rv.available) throw new Error("expected available");
+    for (const p of state.players) expect(rv.players.find((x) => x.playerId === p.playerId)!.hole).toEqual(p.holeCards);
+    expect(reviewMatches(rv, "all")).toBe(true);
+    expect(reviewMatches(reviewHand({ ...rec, variant: "murder5" }), "folded-best")).toBe(false);
   });
 });

@@ -1,11 +1,12 @@
 import * as nodeFs from "node:fs/promises";
 import { join } from "node:path";
 import {
-  addHandToCounts, buildLuckReport, handLuck, buildReport, emptyCounts, isAuditCounts,
-  type AuditCounts, type HandRecord, type RngAuditReport,
+  addHandToCounts, buildLuckReport, buildReport, emptyCounts, isAuditCounts,
+  type AuditCounts, type HandRecord, type LuckReport, type RngAuditReport,
 } from "@homegame/engine";
 import type { FsLike } from "./persist.js";
 import type { Scheduler } from "./table.js";
+import { LuckQueue } from "./luckWork.js";
 
 const FILE_VERSION = 1;
 const DEBOUNCE_MS = 2000;
@@ -37,6 +38,8 @@ const keyOf = (n: number, endedAt: number): string => `${n}@${endedAt}`;
 export class RngAudit {
   private readonly o: RngAuditOptions;
   private readonly fs: FsLike;
+  /** Background worker for the per-player luck numbers. */
+  readonly luck = new LuckQueue();
   private counts: AuditCounts = emptyCounts();
   private since: string;
   private readonly seen = new Map<string, Set<string>>();
@@ -86,15 +89,15 @@ export class RngAudit {
   }
 
   /** Counts one finished hand unless it was counted before. Returns true when it was new. */
-  record(tableId: string, rec: HandRecord, warm = true): boolean {
+  record(tableId: string, rec: HandRecord): boolean {
     const key = keyOf(rec.handNumber, rec.endedAt);
     let set = this.seen.get(tableId);
     if (set?.has(key)) return false;
     if (!addHandToCounts(this.counts, rec)) return false;
     if (!set) this.seen.set(tableId, (set = new Set()));
     set.add(key);
-    // Do the luck math (cached on the record) now, a few milliseconds per hand, so the Fairness tab opens instantly.
-    if (warm) try { handLuck(rec); } catch (e) { console.error("luck precompute failed", e); }
+    // The luck math runs in the background, a few milliseconds at a time (see LuckQueue).
+    this.luck.enqueue(rec);
     this.markDirty();
     return true;
   }
@@ -102,7 +105,7 @@ export class RngAudit {
   /** Counts every not-yet-counted hand in a restored table's history. Returns how many were new. */
   backfill(tableId: string, history: readonly HandRecord[]): number {
     let added = 0;
-    for (const rec of history) if (this.record(tableId, rec, false)) added++;
+    for (const rec of history) if (this.record(tableId, rec)) added++;
     return added;
   }
 
@@ -123,7 +126,13 @@ export class RngAudit {
         if (rec.endedAt < first) first = rec.endedAt;
       }
     }
-    return { ...buildReport(c, "table", new Date(Number.isFinite(first) ? first : this.o.now()).toISOString()), luck: buildLuckReport(history) };
+    return { ...buildReport(c, "table", new Date(Number.isFinite(first) ? first : this.o.now()).toISOString()), luck: this.luckReport(history) };
+  }
+
+  /** Whatever luck numbers are ready now (never computes); hands not done yet are queued and counted in `pending`. */
+  private luckReport(history: readonly HandRecord[]): LuckReport {
+    for (const rec of history) this.luck.enqueue(rec);
+    return buildLuckReport(history, {}, true);
   }
 
   private markDirty(): void {

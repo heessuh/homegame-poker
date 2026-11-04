@@ -1,7 +1,7 @@
 // Poker hand state machine. Pure functions over a JSON-serializable HandState.
 import type { Card } from "./cards.js";
 import { VARIANTS, splitOf, type VariantId } from "./variants.js";
-import type { Declaration, HouseLimit, RunoutSnapshot, LegalActions, Phase, PlayerAction, PotView, StudStakes, WinnerView } from "./protocol.js";
+import type { Declaration, FoldStreet, HouseLimit, RunoutSnapshot, LegalActions, Phase, PlayerAction, PotView, StudStakes, WinnerView } from "./protocol.js";
 import { bestHigh, bestLow8, bestLowAny, type HighResult, type LowResult } from "./evaluate.js";
 import { houseLimitSizing, requiredIncrement, validateSpreadRules } from "./limits.js";
 import { applyStudAction, startStudHand, studLegal, studTimeoutAction } from "./stud.js";
@@ -99,6 +99,8 @@ export interface HandState {
   declarationsRevealed?: boolean;
   /** Board games: set once, when betting closed with cards still to come and nobody could act any more (an all-in runout). */
   runout?: RunoutSnapshot;
+  /** Board games: the street on which each player folded. */
+  foldedOn?: Record<string, FoldStreet>;
 }
 
 // ---------- helpers ----------
@@ -395,6 +397,7 @@ export function applyAction(state: HandState, playerId: string, action: PlayerAc
   switch (action.type) {
     case "fold": {
       p.folded = true;
+      if (s.phase === "preflop" || s.phase === "flop" || s.phase === "turn" || s.phase === "river") (s.foldedOn ??= {})[p.playerId] = s.phase;
       p.hasActed = true;
       p.lastAction = "Fold";
       s.log.push(`${name(p)} folds`);

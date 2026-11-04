@@ -25,6 +25,7 @@ export function formatP(p: number | null): string {
 export function RngAudit({ send, handCount }: { send: Send; handCount: number }) {
   const [scope, setScope] = useState<RngAuditScope>("table");
   const [report, setReport] = useState<RngAuditReport | null>(null);
+  const [retry, setRetry] = useState(0);
   const [failed, setFailed] = useState(false);
   const want = useRef(0);
 
@@ -36,10 +37,13 @@ export function RngAudit({ send, handCount }: { send: Send; handCount: number })
       if (want.current !== id) return;
       clearTimeout(timer);
       setReport(r);
+      // The luck numbers are worked out in the background; ask again shortly until they are all in.
+      if (r.luck && r.luck.pending > 0) retryTimer = setTimeout(() => setRetry((n) => n + 1), 3000);
     });
-    return () => clearTimeout(timer);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    return () => { clearTimeout(timer); if (retryTimer) clearTimeout(retryTimer); };
     // Refresh when the scope changes or another hand finishes at this table.
-  }, [scope, handCount, send]);
+  }, [scope, handCount, send, retry]);
 
   const shown = report && report.scope === scope ? report : null;
   return (
@@ -170,6 +174,7 @@ function Luck({ luck }: { luck: LuckReport }) {
         <span className={`vbadge ${o ? o.verdict : "too-few-hands"}`}>{o ? VERDICT_TEXT[o.verdict].badge : "Not enough hands yet"}</span>
       </div>
       <p className="lens-says">
+        {luck.pending > 0 && <><b>Still computing {num(luck.pending)} {luck.pending === 1 ? "hand" : "hands"}.</b> The numbers below cover the hands finished so far and will update by themselves.<br /></>}
         Every hand reveals its deck, so we can rebuild what each player was dealt, folded hands included, and ask whose hand would have been best if
         nobody had folded. With 6 players dealt in, each should be best about 1 hand in 6; that is the “expected” number. Real results wander around it,
         and with only a few dozen hands they wander a lot, so one player being ahead for a while is normal. Only totals are shown here, never anyone’s cards.
