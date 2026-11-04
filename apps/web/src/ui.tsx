@@ -104,8 +104,9 @@ export function MoneyInput({ value, onChange, dollars, min, max, label, classNam
   const check = (t: string): number | null => {
     const n = parseMoney(t, d);
     if (n === null) { setErr(d ? "Enter dollars like 1.25" : "Enter a whole number"); return null; }
-    if (min !== undefined && n < min) { setErr(`At least ${fmtWith(min, d, true)}`); return null; }
-    if (max !== undefined && n > max) { setErr(`At most ${fmtWith(max, d, true)}`); return null; }
+    const range = min !== undefined && max !== undefined ? `Allowed: ${fmtWith(min, d)} to ${fmtWith(max, d)}` : null;
+    if (min !== undefined && n < min) { setErr(range ?? `At least ${fmtWith(min, d)}`); return null; }
+    if (max !== undefined && n > max) { setErr(range ?? `At most ${fmtWith(max, d)}`); return null; }
     setErr(null);
     return n;
   };
@@ -127,6 +128,22 @@ export function MoneyInput({ value, onChange, dollars, min, max, label, classNam
         aria-invalid={!!err} autoFocus={autoFocus} onChange={(e) => change(e.target.value)} onBlur={blur} />
       {d && <span className="unit" aria-hidden="true">$</span>}
       {err && <span className="note small" role="alert">{err}</span>}
+    </span>
+  );
+}
+
+/** Original wordmark: a coffee-bean poker chip plus the name in a warm serif. */
+export function Wordmark({ size = "sm" }: { size?: "sm" | "lg" }) {
+  return (
+    <span className={`wordmark ${size}`}>
+      <svg viewBox="0 0 40 40" className="wm-chip" aria-hidden="true">
+        <circle cx="20" cy="20" r="18.5" fill="#3a2418" stroke="#e3b765" strokeWidth="2" />
+        <circle cx="20" cy="20" r="18.5" fill="none" stroke="#f4ebdc" strokeWidth="3" strokeDasharray="5 6.6" opacity=".9" />
+        <circle cx="20" cy="20" r="13" fill="#2a1910" stroke="#e3b765" strokeWidth="1" opacity=".9" />
+        <ellipse cx="20" cy="20" rx="6.2" ry="8.6" transform="rotate(32 20 20)" fill="#e3b765" />
+        <path d="M15.8 26.2 C19 21.5 21 18.5 24.2 13.8" stroke="#2a1910" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      </svg>
+      <span className="wm-text">Mocha <b>Poker</b></span>
     </span>
   );
 }

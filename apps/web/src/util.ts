@@ -9,18 +9,18 @@ export function setMoneyMode(config: Pick<TableConfig, "money" | "mode"> | null 
 }
 export const isDollars = (): boolean => dollarMode;
 
-/** Format an amount. Dollars mode: "$12", "$1.25" (whole dollars drop the .00). Chips mode: "1,250". */
-export function fmtWith(n: number, dollars: boolean, keepCents = false): string {
+/** Format an amount. Dollars mode always shows cents: "$40.00", "$0.20", "$1,250.00". Chips mode: "1,250". */
+export function fmtWith(n: number, dollars: boolean, _keepCents = false): string { // eslint-disable-line @typescript-eslint/no-unused-vars
   if (!dollars) return Math.round(n).toLocaleString("en-US");
   const neg = n < 0;
   const c = Math.abs(Math.round(n));
   const d = Math.floor(c / 100);
   const r = c % 100;
-  const body = "$" + d.toLocaleString("en-US") + (r !== 0 || keepCents ? "." + String(r).padStart(2, "0") : "");
+  const body = "$" + d.toLocaleString("en-US") + "." + String(r).padStart(2, "0");
   return neg ? "-" + body : body;
 }
 export const fmt = (n: number): string => fmtWith(n, dollarMode);
-/** Always shows cents in dollars mode (bet and call buttons). */
+/** Same as fmt (cents are always shown); kept for bet and call buttons. */
 export const fmtBet = (n: number): string => fmtWith(n, dollarMode, true);
 
 /** Parse typed text to integer chips. Dollars mode accepts "1.25", "$3", ".5"; chips mode whole numbers. Null = invalid. */
@@ -37,7 +37,7 @@ export function parseMoney(text: string, dollars: boolean): number | null {
 /** Integer chips to the text shown in an input. */
 export function moneyText(n: number, dollars: boolean): string {
   if (!dollars) return String(n);
-  return n % 100 === 0 ? String(n / 100) : (n / 100).toFixed(2);
+  return (n / 100).toFixed(2);
 }
 
 
@@ -88,3 +88,8 @@ export const STUD_STREETS: Partial<Record<Phase, string>> = {
   "2nd": "2nd card", "3rd": "3rd card", "4th": "4th card", "5th": "5th card",
   draw1: "Exchange 1", draw2: "Exchange 2", declare: "Declare",
 };
+
+/** "Pot-Limit Omaha Hi/Lo (8 or better)" -> "Pot-Limit Omaha Hi/Lo". */
+export function shortGame(name: string): string {
+  return name.replace(/s*(.*?)/g, "").trim();
+}

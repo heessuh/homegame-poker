@@ -3,7 +3,7 @@ import { Table, type Scheduler } from "../src/table.js";
 
 /** The pre-cents defaults most tests were written against: 1/2 blinds, 40-400 buy-ins, plain chips, no house limit. */
 export const LEGACY: Partial<TableConfig> = {
-  smallBlind: 1, bigBlind: 2, minBuyIn: 40, maxBuyIn: 400, money: "chips", houseLimit: { ...DEFAULT_HOUSE_LIMIT, enabled: false },
+  smallBlind: 1, bigBlind: 2, minBuyIn: 40, maxBuyIn: 400, money: "chips", awardMode: "auto", houseLimit: { ...DEFAULT_HOUSE_LIMIT, enabled: false },
 };
 
 export class FakeClock implements Scheduler {

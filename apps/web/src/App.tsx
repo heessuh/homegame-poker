@@ -12,7 +12,7 @@ import { FIXTURE_LABELS, makeFixtures } from "./mock";
 import type { FixtureId } from "./mock";
 import { AwardPanel } from "./Award";
 import { TournamentHud } from "./Tournament";
-import { Avatar, AvatarPicker, Modal, MoneyInput, loadAvatar, saveAvatar } from "./ui";
+import { Avatar, AvatarPicker, Modal, MoneyInput, Wordmark, loadAvatar, saveAvatar } from "./ui";
 import { fmt, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
@@ -73,7 +73,7 @@ function Landing() {
   const join = () => { const c = code.trim().replace(/^.*#/, ""); if (c) location.hash = c; };
   return (
     <main className="landing">
-      <h1>Home Game Poker</h1>
+      <h1><Wordmark size="lg" /></h1>
       <p className="muted">A private table for friends. Hold’em and Omaha, no accounts.</p>
       <button className="btn call big" onClick={create}>Create a table</button>
       <div className="or">or</div>
@@ -134,8 +134,28 @@ function LiveRoom({ tableId, name, avatar, onAvatar, showToast }: { tableId: str
 function MockRoom({ showToast, avatar, onAvatar }: { showToast: (m: string) => void; avatar: string | null; onAvatar: (a: string | null) => void }) {
   const [fixtures, setFixtures] = useState<Record<FixtureId, TableView> | null>(null);
   const [id, setId] = useState<FixtureId>("plo5-turn");
+  const fixturesRef = useRef<Record<FixtureId, TableView> | null>(null);
+  const idRef = useRef<FixtureId>(id);
+  idRef.current = id;
+  fixturesRef.current = fixtures;
   useEffect(() => { void makeFixtures().then(setFixtures); }, []);
-  const send = useMemo<Send>(() => (ev, ...args) => showToast(`[mock] ${ev} ${JSON.stringify(args[0] ?? {})}`), [showToast]);
+  const send = useMemo<Send>(() => (ev, ...args) => {
+    // Mock acks so History and the full log work without a server.
+    if (ev === "getHand") {
+      const f = fixturesRef.current?.[idRef.current];
+      const num = (args[0] as { handNumber: number }).handNumber;
+      const base = f?.lastHand ?? null;
+      (args[1] as (r: unknown) => void)(base ? { ...base, handNumber: num } : null);
+      return;
+    }
+    if (ev === "getLog") {
+      const f = fixturesRef.current?.[idRef.current];
+      const lines = f ? [...f.log, ...f.log, ...f.log].map((l, i) => `[${String(i + 1).padStart(3, "0")}] ${l}`) : [];
+      (args[0] as (l: string[]) => void)(lines);
+      return;
+    }
+    showToast(`[mock] ${ev} ${JSON.stringify(args[0] ?? {})}`);
+  }, [showToast]);
   if (!fixtures) return <main className="landing"><p className="muted">Loading fixtures…</p></main>;
   return (
     <>
@@ -166,7 +186,7 @@ function AmountPrompt(props: { title: string; min: number; max: number; cta: str
   return (
     <Modal title={props.title} onClose={props.onClose}>
       <p className="muted">Between {fmt(props.min)} and {fmt(props.max)}</p>
-      <input type="range" min={props.min} max={props.max} value={Math.min(props.max, Math.max(props.min, v))} onChange={(e) => setV(Number(e.target.value))} />
+      <input type="range" min={props.min} max={props.max} value={Math.min(props.max, Math.max(props.min, v))} style={{ ["--pct" as string]: `${props.max > props.min ? ((Math.min(props.max, Math.max(props.min, v)) - props.min) / (props.max - props.min)) * 100 : 100}%` }} onChange={(e) => setV(Number(e.target.value))} />
       <MoneyInput className="amt wide" value={v} min={props.min} max={props.max} onChange={setV} label="Amount" autoFocus />
       <div className="btn-row">
         <button className="btn" onClick={props.onClose}>Cancel</button>
@@ -181,7 +201,6 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("log");
   const [sitSeat, setSitSeat] = useState<number | null>(null);
-  const [rebuy, setRebuy] = useState(false);
   const [pickAvatar, setPickAvatar] = useState(false);
   const me = view.you.seat !== null ? view.seats[view.you.seat] : null;
   const cfg = view.config ?? DEFAULT_CONFIG;
@@ -199,7 +218,7 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
     <div className={`room ${open ? "panel-open" : ""}`}>
       <header className="top">
         <div className="title">
-          <b>Table</b> <code>{view.tableId}</code>
+          <Wordmark /> <code>{view.tableId}</code>
           <span className={`pill ${view.status}`}>{view.status}</span>
           {!connected && <span className="pill warn">reconnecting…</span>}
           {view.you.isHost ? (
@@ -221,13 +240,15 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
           <TournamentHud view={view} send={send} />
           <Table view={view} onSit={setSitSeat} onMe={() => setPickAvatar(true)} send={send} />
           {view.you.isHost && view.pendingAward && <AwardPanel view={view} pa={view.pendingAward} send={send} />}
-          <ActionBar view={view} onAction={(a) => send("action", a)} />
+          <ActionBar view={view} onAction={(a) => send("action", a)} onExtend={() => send("extendTime")} />
+          {me && !isTourney && me.stack === 0 && !me.inHand && (
+            <p className="note busted" role="status">Out of chips — ask the dealer for a rebuy.</p>
+          )}
           {me && (
             <div className="controls">
               <button className="btn small" onClick={() => send("stand")}>Stand up</button>
               <button className="btn small" onClick={() => send("sitOut", { sittingOut: !me.sittingOut })}>{me.sittingOut ? "Sit in" : "Sit out"}</button>
               <button className="btn small" onClick={() => setPickAvatar(true)}>Avatar</button>
-              {!isTourney && <button className="btn small" onClick={() => setRebuy(true)}>Rebuy</button>}
             </div>
           )}
         </section>
@@ -246,10 +267,6 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
           onConfirm={(n) => send("sit", { seat: sitSeat, buyIn: n })} onClose={() => setSitSeat(null)} />
       )}
       {pickAvatar && <AvatarPicker current={me?.avatar ?? avatar} onPick={changeAvatar} onClose={() => setPickAvatar(false)} />}
-      {rebuy && !isTourney && (
-        <AmountPrompt title="Rebuy" min={cfg.minBuyIn} max={cfg.maxBuyIn} cta="Rebuy"
-          onConfirm={(n) => send("rebuy", { amount: n })} onClose={() => setRebuy(false)} />
-      )}
     </div>
   );
 }

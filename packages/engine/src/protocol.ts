@@ -9,7 +9,9 @@ export interface TableConfig {
   smallBlind: number;
   bigBlind: number;
   maxSeats: number; // 2..10 (capped by the variant's maxPlayers)
-  actionTimeoutSec: number; // 0 = no timer
+  actionTimeoutSec: number; // 0 = no timer, else 5..300
+  /** Seconds a player may add to their own clock once per turn ("+15s"); 0 = off. */
+  extensionSec: number;
   minBuyIn: number;
   maxBuyIn: number;
   /** "auto": pots go to the best hands. "host": the hand ends with the pot held until the host awards it. */
@@ -106,9 +108,10 @@ export const DEFAULT_CONFIG: TableConfig = {
   bigBlind: 20,
   maxSeats: 9,
   actionTimeoutSec: 30,
+  extensionSec: 15,
   minBuyIn: 500,
   maxBuyIn: 5000,
-  awardMode: "auto",
+  awardMode: "host",
   mode: "cash",
   tournament: TOURNAMENT_PRESETS.standard.config,
   stud: DEFAULT_STUD,
@@ -224,6 +227,10 @@ export interface HandRecord {
   board: Card[];
   winners: WinnerView[];
   summary: string[];
+  /** Cards revealed at showdown (all of each player's cards), and player names at the time of the hand. */
+  shown: Record<string, Card[]>;
+  names: Record<string, string>;
+  endedAt: number;
 }
 
 export interface PendingAward {
@@ -258,6 +265,16 @@ export interface TournamentView {
   standings: TournamentStanding[]; // live players by stack, then eliminated by place
 }
 
+/** One line per finished hand for the history list; full detail comes from getHand. */
+export interface HandListItem {
+  handNumber: number;
+  variant: VariantId;
+  endedAt: number; // epoch ms
+  pot: number;
+  /** e.g. "Ana $3.20 (High), Bo $3.20 (Low)" — names and money already formatted. */
+  result: string;
+}
+
 export interface TableView {
   tableId: string;
   hostPlayerId: string | null;
@@ -273,6 +290,10 @@ export interface TableView {
   log: string[]; // most recent last, capped
   /** Set while awardMode is "host" and a finished hand's pot is waiting to be awarded. Next hand waits for it. */
   pendingAward: PendingAward | null;
+  /** Every finished hand this session, newest first (light entries). */
+  handList: HandListItem[];
+  /** True when the viewer is to act, has a running timer, and hasn't used this turn's extension. */
+  canExtend: boolean;
   tournament: TournamentView | null; // null in cash mode
 }
 
@@ -283,14 +304,22 @@ export interface ClientToServerEvents {
   sit: (p: { seat: number; buyIn: number }) => void;
   stand: () => void; // cash out at end of current hand
   sitOut: (p: { sittingOut: boolean }) => void;
-  rebuy: (p: { amount: number }) => void; // applied between hands
+  /** Ask for extensionSec more seconds on your own clock (once per turn). */
+  extendTime: () => void;
+  /** Full detail of a finished hand (deck reveal, summary lines, shown cards). */
+  getHand: (p: { handNumber: number }, ack: (rec: HandRecord | null) => void) => void;
+  /** The whole session log (view.log only carries the latest lines). */
+  getLog: (ack: (lines: string[]) => void) => void;
   action: (p: PlayerAction) => void;
   "host:start": () => void;
   "host:pause": (p: { paused: boolean }) => void;
   "host:config": (p: Partial<TableConfig>) => void;
   "host:kick": (p: { playerId: string }) => void;
   "host:sitOut": (p: { playerId: string; sittingOut: boolean }) => void; // dealer marks a player away / back
-  "host:adjustStack": (p: { playerId: string; delta: number }) => void; // between hands, recorded in ledger
+  /** Rebuys are dealer-only: a positive delta is recorded as a buy-in (and sits a busted player back in), negative as a cash-out. Between hands; queued during a hand. */
+  "host:adjustStack": (p: { playerId: string; delta: number }) => void;
+  /** Save this table's settings as the house defaults every NEW table starts with. */
+  "host:saveDefaults": () => void;
   /** Hand out a pending pot. Amounts are non-negative integers that must sum to pendingAward.amount. */
   "host:award": (p: { awards: { playerId: string; amount: number }[] }) => void;
   /** Move chips from one player's stack to another's. Applied at once between hands, queued during a hand. */

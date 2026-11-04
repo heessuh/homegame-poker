@@ -1,6 +1,6 @@
 # Hosting
 
-The rules the site enforces for our games are written up in [House Rules](HOUSE_RULES.md). In the Host tab, **House limit** (Hold’em and Omaha) and **5-Murder stakes** hold those settings, and **Money** switches between dollars and cents and plain chips.
+The rules the site enforces for our games are written up in [House Rules](HOUSE_RULES.md). In the Host tab, **House limit** (Hold’em and Omaha) and **5-Murder stakes** hold those settings, and money always shows dollars and cents.
 
 A guide for the person running the game night.
 
@@ -26,9 +26,12 @@ In the **Host** tab, under **Settings**, you can change:
 - **Variant**: No-Limit Hold’em, Pot-Limit Omaha (4 or 5 cards), or Hold’em Hi/Lo (no qualifier), or the Omaha Hi/Lo 8-or-better versions.
 - **Small blind** and **Big blind**.
 - **Max seats**: 2 to 10 for four-card games, 2 to 8 for five-card games.
-- **Action timer**: seconds per action, or 0 to turn it off. Allowed values are 0 or 10 to 120.
+- **Action timer**: seconds per action, or 0 to turn it off. Allowed values are 0 or 5 to 300.
+- **Player extension**: how many seconds a player gets when they tap **+15s** on their timer. Default 15; 0 turns it off.
 - **Min buy-in** and **Max buy-in**.
-- **Pot awarding**: **Automatic** or **Dealer decides** (see below).
+- **Pot awarding**: **Dealer decides** (the default) or **Automatic** (see below).
+
+Click **Save as house defaults** to make this table’s settings (house limits, 5-Murder stakes, timers, buy-ins, and game) the starting point for new tables.
 
 Click **Apply settings** to save. If a hand is in progress, changes wait and apply at the start of the next hand; the panel shows “Pending changes apply next hand.” Changes that would seat someone in a seat you’re removing are refused until that player stands up.
 
@@ -38,18 +41,20 @@ Under **Players** you can see everyone seated with their stack.
 
 - Enter an amount in **Stack adjust amount**, then use **+** or **−** next to a player to add or remove chips. Adjustments made during a hand are applied after it ends.
 - **Sit out / Sit in** marks a player as away if they forgot to do it themselves, so they aren’t dealt in (in a tournament they’re still dealt and fold automatically). Click **Sit in** to deal them back in.
+- **Rebuy** records a buy-in in the ledger and adds chips to a player’s stack. It also deals a busted player back in.
+- **Cash out** pays a player’s stack out and records it in the ledger.
 - **Kick** removes a player from their seat and stops them from sitting down again. If they’re in a hand, they leave after it ends. You cannot kick yourself.
 - **Move chips** moves any amount from one player’s stack to another’s at any time. Between hands it happens right away; during a hand, it happens at the end of the current hand.
 - **Timer** sets each player’s action timer: **Table default**, **No limit**, or 15 to 180 seconds. While someone is acting, you can click **+30s** to give them more time, or **Time out now** to act for them: check if possible, otherwise fold.
 
 Every buy-in, rebuy, host adjustment, and cash-out is recorded in the **Ledger** tab, so you can settle up at the end of the night.
 
-## Dealer-awarded pots
+## Pot awarding
 
 Under **Settings**, **Pot awarding** has two modes:
 
+- **Dealer decides** (the default): the dealer finalizes every pot. At showdown, everyone sees the winnings about to be awarded. The amounts start at what the cards say. Adjust them as you like, or click **Reset to suggested** to undo your edits. Then click **Next hand** to pay out and deal the next hand.
 - **Automatic**: the server awards each pot based on the cards.
-- **Dealer decides**: every hand ends with the pot held. The **Award** panel is prefilled with what the cards say. Click **Use suggested** to accept it, type any split you like, or click **All to <name>**. The **Award** button unlocks when the total matches the pot. The next hand waits for you.
 
 ## Tournaments
 
@@ -64,7 +69,7 @@ While a tournament runs:
 - Players who stand up during a tournament are counted as eliminated.
 - After there’s a winner, switch **Mode** back to **Cash**, or start another tournament.
 
-Tournament chips never count in the cash ledger. Switching a table to tournament mode cashes everyone out in the ledger first. Switching back to cash leaves players with 0 chips and sitting out until they rebuy, and each rebuy is recorded as a buy-in.
+Tournament chips never count in the cash ledger. Switching a table to tournament mode cashes everyone out in the ledger first. Switching back to cash leaves players with 0 chips and sitting out until you rebuy them. Each rebuy is recorded as a buy-in.
 
 ## If the host goes offline
 
@@ -73,7 +78,8 @@ If you lose your connection (for example, your phone sleeps), the table keeps go
 - If you reconnect within 60 seconds, you keep host status and nothing changes.
 - If you reconnect later, you don’t get host status back automatically. The new host can use the controls.
 
-## Limitations of this proof of concept
+## Saved games
 
-- Tables live in the server’s memory. A redeploy, a server restart, or the server shutting down while idle clears every table, including chips and the ledger.
-- Settle the ledger before the night ends. Once the table is gone, its chips and history go with it, so start a fresh table next time.
+Tables are saved on the server after every change. If the server restarts, the power goes out, or someone’s connection drops, the game comes back exactly where it was: the current hand, cards, stacks, ledger, and history. Players get their seat back by reopening the table link in the same browser. Tables that nobody opens for 14 days are deleted.
+
+Settling up at the end of the night is still good practice: check the **Ledger** before everyone heads home.

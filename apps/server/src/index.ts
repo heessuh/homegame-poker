@@ -12,14 +12,17 @@ import {
   type PlayerAction,
   type ServerToClientEvents,
   type TableConfig,
+  type HandRecord,
 } from "@homegame/engine";
-import { realScheduler, Table, UserError, type Scheduler } from "./table.js";
+import { IDLE_DELETE_MS, Store, type FsLike } from "./persist.js";
+import { realScheduler, Table, UserError, type Scheduler, type TableSnapshot } from "./table.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webDist = join(here, "../../web/dist");
 
 const TABLE_ID_RE = /^[a-z0-9-]{3,32}$/i;
-const IDLE_TABLE_MS = 2 * 60 * 60 * 1000;
+const IDLE_MEMORY_MS = 2 * 60 * 60 * 1000; // without persistence, empty tables are forgotten after 2 hours
+const GC_EVERY_MS = 60 * 60 * 1000;
 
 interface SocketData {
   tableId?: string;
@@ -31,12 +34,18 @@ export interface ServerOptions {
   deckSource?: () => Card[];
   scheduler?: Scheduler;
   now?: () => number;
+  /** Where snapshots and house defaults live. Default: $DATA_DIR or ./data. null turns persistence off. */
+  dataDir?: string | null;
+  fs?: FsLike;
 }
 
-export function startServer(port: number, opts: ServerOptions = {}): Promise<{ close: () => Promise<void>; port: number }> {
+export async function startServer(port: number, opts: ServerOptions = {}): Promise<{ close: () => Promise<void>; port: number }> {
   const now = opts.now ?? Date.now;
   const scheduler = opts.scheduler ?? realScheduler;
   const deckSource = opts.deckSource ?? (() => shuffle());
+  const dataDir = opts.dataDir === undefined ? (process.env.DATA_DIR ?? "./data") : opts.dataDir;
+  const store = dataDir === null ? null : new Store({ dir: dataDir, scheduler, now, fs: opts.fs });
+  let houseDefaults: Partial<TableConfig> | undefined = store ? await store.loadDefaults() : undefined;
 
   const app = express();
   app.get("/healthz", (_req, res) => res.json({ ok: true }));
@@ -73,23 +82,46 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
     tables.get(id)?.dispose();
     tables.delete(id);
     sockets.delete(id);
+    if (store) void store.remove(id);
+  }
+
+  function makeTable(tableId: string, snapshot?: TableSnapshot): Table {
+    const t: Table = new Table({
+      tableId, now, scheduler, deckSource, config: houseDefaults, snapshot,
+      onChange: () => {
+        broadcast(tableId);
+        if (store) store.markDirty(tableId, () => (tables.get(tableId) === t ? t.snapshot() : null));
+      },
+    });
+    tables.set(tableId, t);
+    sockets.set(tableId, new Map());
+    return t;
   }
 
   function getOrCreateTable(tableId: string): Table {
     let t = tables.get(tableId);
-    if (!t) {
-      t = new Table({ tableId, now, scheduler, deckSource, onChange: () => broadcast(tableId) });
-      tables.set(tableId, t);
-      sockets.set(tableId, new Map());
+    return t ?? makeTable(tableId);
+  }
+
+  if (store) {
+    for (const snap of await store.loadAll()) {
+      try {
+        makeTable(snap.tableId, snap).resume();
+      } catch (e) {
+        console.error(`Could not restore table ${snap.tableId}`, e);
+        tables.delete(snap.tableId);
+        sockets.delete(snap.tableId);
+      }
     }
-    return t;
+    if (tables.size > 0) console.log(`Restored ${tables.size} table(s) from ${dataDir}`);
   }
 
   const gc = setInterval(() => {
+    const limit = store ? IDLE_DELETE_MS : IDLE_MEMORY_MS;
     for (const [id, t] of tables) {
-      if (t.idleSince !== null && now() - t.idleSince > IDLE_TABLE_MS) dropTable(id);
+      if (t.idleSince !== null && now() - t.idleSince > limit) dropTable(id);
     }
-  }, 10 * 60 * 1000);
+  }, GC_EVERY_MS);
   gc.unref();
 
   io.on("connection", (socket: PokerSocket) => {
@@ -184,11 +216,38 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
       table.hostSitOut(playerId, p.playerId, p.sittingOut);
     }));
 
-    on("rebuy", handle((raw) => {
-      const p = obj(raw);
-      const { table, playerId } = ctx();
-      table.rebuy(playerId, int(p.amount, "Amount"));
+    // Older clients still send this; rebuys are dealer-only now.
+    on("rebuy", handle(() => {
+      throw new UserError("Ask the dealer for more chips");
     }));
+
+    on("extendTime", handle(() => {
+      const { table, playerId } = ctx();
+      table.extendTime(playerId);
+    }));
+
+    const onAck = socket.on.bind(socket) as unknown as (ev: string, fn: (raw: unknown, ack?: unknown) => void) => void;
+    onAck("getHand", (raw, ack) => {
+      if (typeof ack !== "function") return;
+      try {
+        const { table } = ctx();
+        const n = raw && typeof raw === "object" ? (raw as Record<string, unknown>).handNumber : undefined;
+        (ack as (r: HandRecord | null) => void)(table.getHand(n));
+      } catch (e) {
+        (ack as (r: null) => void)(null);
+        fail(e);
+      }
+    });
+    onAck("getLog", (first, second) => {
+      const reply = (typeof first === "function" ? first : second) as unknown;
+      if (typeof reply !== "function") return;
+      try {
+        (reply as (l: string[]) => void)(ctx().table.getLog());
+      } catch (e) {
+        (reply as (l: string[]) => void)([]);
+        fail(e);
+      }
+    });
 
     on("action", handle((raw) => {
       const p = obj(raw);
@@ -244,6 +303,13 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
       const { table, playerId } = ctx();
       if (typeof p.playerId !== "string") throw new UserError("Invalid request.");
       table.hostAdjustStack(playerId, p.playerId, int(p.delta, "Adjustment"));
+    }));
+
+    on("host:saveDefaults", handle(() => {
+      const { table, playerId } = ctx();
+      const cfg = table.hostSaveDefaults(playerId);
+      houseDefaults = cfg;
+      if (store) store.saveDefaults(cfg).catch((e) => console.error("saving house defaults failed", e));
     }));
 
     on("host:award", handle((raw) => {
@@ -306,12 +372,12 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
       const actual = (http.address() as AddressInfo).port;
       resolvePromise({
         port: actual,
-        close: () =>
-          new Promise<void>((res) => {
-            clearInterval(gc);
-            for (const t of tables.values()) t.dispose();
-            void io.close(() => res());
-          }),
+        close: async () => {
+          clearInterval(gc);
+          if (store) await store.flush(); // before dispose: timers are cleared, state stays
+          for (const t of tables.values()) t.dispose();
+          await new Promise<void>((res) => void io.close(() => res()));
+        },
       });
     });
   });
@@ -320,5 +386,16 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<{ c
 const entry = process.argv[1] ? resolve(process.argv[1]) : "";
 if (process.env.HOMEGAME_NO_LISTEN !== "1" && entry === fileURLToPath(import.meta.url)) {
   const PORT = Number(process.env.PORT ?? 3000);
-  void startServer(PORT).then((s) => console.log(`homegame-poker listening on :${s.port}`));
+  void startServer(PORT).then((s) => {
+    console.log(`homegame-poker listening on :${s.port}`);
+    let stopping = false;
+    const stop = (sig: string): void => {
+      if (stopping) return;
+      stopping = true;
+      console.log(`${sig}: saving tables and shutting down`);
+      s.close().catch((e) => console.error("shutdown failed", e)).finally(() => process.exit(0));
+    };
+    process.on("SIGTERM", () => stop("SIGTERM"));
+    process.on("SIGINT", () => stop("SIGINT"));
+  });
 }

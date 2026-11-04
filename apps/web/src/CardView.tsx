@@ -7,10 +7,12 @@ export type CardSize = "sm" | "md" | "lg";
 export function CardFace({ card, size = "md", className = "" }: { card: Card; size?: CardSize; className?: string }) {
   const rank = card[0] === "T" ? "10" : card[0];
   const suit = card[1] ?? "s";
+  const sym = SUIT_SYMBOL[suit];
   return (
-    <div className={`card suit-${suit} ${size} ${className}`} aria-label={`${rank} of ${suit}`}>
-      <span className="r">{rank}</span>
-      <span className="s">{SUIT_SYMBOL[suit]}</span>
+    <div className={`card face suit-${suit} ${size} ${className}`} aria-label={`${rank} of ${suit}`}>
+      <span className="cn tl"><b>{rank}</b><i>{sym}</i></span>
+      <span className="pip" aria-hidden="true">{sym}</span>
+      <span className="cn br" aria-hidden="true"><b>{rank}</b><i>{sym}</i></span>
     </div>
   );
 }

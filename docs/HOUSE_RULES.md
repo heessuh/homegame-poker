@@ -2,7 +2,7 @@
 
 These are our own rules for the games we play at Mocha Poker. Some are unconventional on purpose. Where a rule differs from casino poker, the site follows the rule written here.
 
-All money is in dollars and cents. On the site, one chip is one cent, and amounts show as dollars (for example, $1.25).
+All money is in dollars and cents. On the site, one chip is one cent, and amounts always show as dollars and cents with two decimals (for example, $1.25 or $40.00).
 
 ## Betting in all house games
 
@@ -91,6 +91,6 @@ After the last betting round, each player still in the hand secretly chooses **H
 
 The host can switch 5-Murder to cards speak instead. Then nobody declares: the best high hand and the lowest hand split every pot automatically.
 
-## The dealer’s call
+## Dealer controls
 
-For our non-traditional games, the host can set the table to **Dealer decides**. After every hand, the pot waits in the middle until the dealer hands it out. The dealer can also move chips between players, sit a player out who forgot to, and change the time limit for any player. Everything the dealer does is written in the hand log.
+The dealer handles the money side of the game. Rebuys go through the dealer; players can’t add chips themselves. By default the dealer awards every pot, and confirms each payout with **Next hand** before the next deal. The host can switch awarding to Automatic. The dealer can also move chips between players, sit a player out who forgot to, and change the time limit for any player. Everything the dealer does is written in the hand log.

@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { io as connect, type Socket } from "socket.io-client";
 import type { ClientToServerEvents, ServerToClientEvents, TableView } from "@homegame/engine";
@@ -31,7 +34,7 @@ async function until(cond: () => boolean, ms = 15_000): Promise<void> {
 describe("socket server", () => {
   let server: Awaited<ReturnType<typeof startServer>>;
   beforeAll(async () => {
-    server = await startServer(0);
+    server = await startServer(0, { dataDir: mkdtempSync(join(tmpdir(), "hg-srv-")) });
   });
   afterAll(async () => {
     await server.close();
@@ -56,6 +59,7 @@ describe("socket server", () => {
     await until(() => a.view!.seats.filter(Boolean).length === 2);
     b.emit("host:start");
     await until(() => b.errors.length > 0);
+    a.emit("host:config", { awardMode: "auto" });
     a.emit("host:start");
     await until(() => a.view!.hand?.winners != null && b.view!.hand?.winners != null, 20_000);
     expect(a.view!.lastHand).not.toBeNull();

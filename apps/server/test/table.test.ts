@@ -153,7 +153,7 @@ describe("hands", () => {
     seatAll(r);
     r.table.hostStart(r.ids[0]!);
     r.clock.advance(1000);
-    r.table.rebuy(r.ids[0]!, 50);
+    r.table.hostAdjustStack(r.ids[0]!, r.ids[0]!, 50);
     r.table.hostAdjustStack(r.ids[0]!, r.ids[1]!, -20);
     const mid = r.table.viewFor(r.ids[0]!);
     expect(mid.ledger.find((e) => e.playerId === r.ids[0])!.buyIns).toBe(100);
@@ -224,7 +224,7 @@ describe("config and host", () => {
     expect(() => r.table.hostConfig(host, { smallBlind: 5, bigBlind: 2 })).toThrow(UserError);
     expect(() => r.table.hostConfig(host, { maxSeats: 1 })).toThrow(UserError);
     expect(() => r.table.hostConfig(host, { maxSeats: 11 })).toThrow(UserError);
-    expect(() => r.table.hostConfig(host, { actionTimeoutSec: 5 })).toThrow(UserError);
+    expect(() => r.table.hostConfig(host, { actionTimeoutSec: 4 })).toThrow(UserError);
     expect(() => r.table.hostConfig(host, { minBuyIn: 500 })).toThrow(UserError);
     expect(() => r.table.hostConfig(host, { smallBlind: 1.5 })).toThrow(UserError);
     r.table.hostConfig(host, { smallBlind: 2, bigBlind: 4 });

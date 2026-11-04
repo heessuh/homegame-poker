@@ -275,7 +275,6 @@ describe("tournament", () => {
     expect(v.tournament!.nextLevel).toEqual({ smallBlind: 20, bigBlind: 40, minutes: 1 });
     r.clock.advance(1000);
     expect(betSum(r)).toBe(30);
-    expect(() => r.table.rebuy(r.ids[0]!, 100)).toThrow(/Rebuys are off/);
   });
 
   it("needs two seated players to start", () => {
@@ -523,7 +522,7 @@ describe("mode switches keep the cash ledger honest", () => {
     expect(me.net).toBe(0);
     expect(seatOf(r, 0).stack).toBe(0);
     expect(seatOf(r, 0).sittingOut).toBe(true);
-    r.table.rebuy(r.ids[0]!, 200);
+    r.table.hostAdjustStack(r.ids[0]!, r.ids[0]!, 200);
     expect(view(r).ledger.find((l) => l.playerId === r.ids[0])!.buyIns).toBe(350);
   });
 });

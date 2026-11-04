@@ -1,10 +1,14 @@
+import { useRef } from "react";
 import { VARIANTS } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack } from "./CardView";
 import { CardFace } from "./CardView";
 import { STUD_STREETS, fmt, isStud, totalPot } from "./util";
-import { Avatar, useNow } from "./ui";
+import { useNow } from "./ui";
+import { ChipStack } from "./Chips";
+import { useTableMotion } from "./motion";
 import type { Send } from "./App";
+import { nameOf } from "./Award";
 
 interface Props {
   view: TableView;
@@ -20,10 +24,21 @@ export function Table({ view, onSit, onMe, send }: Props) {
   const hasTimer = !!(hand?.actionDeadline && hand.toActSeat !== null);
   const now = useNow(hasTimer);
   const stud = isStud(config);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const winnersByPlayer = new Map<string, WinnerView[]>();
-  for (const w of hand?.winners ?? []) {
+  // Winners about to be paid: the final result if the server sent one, else the suggested split of the pending award.
+  const pa = view.pendingAward;
+  const shownWinners: WinnerView[] = hand?.winners ?? (pa
+    ? pa.suggested.map((x) => ({ playerId: x.playerId, amount: x.amount, potIndex: 0, half: "whole" as const, handName: null }))
+    : []);
+  for (const w of shownWinners) {
     winnersByPlayer.set(w.playerId, [...(winnersByPlayer.get(w.playerId) ?? []), w]);
   }
+  const winAmts = new Map<string, number>();
+  for (const w of shownWinners) winAmts.set(w.playerId, (winAmts.get(w.playerId) ?? 0) + w.amount);
+  const winKey = shownWinners.length
+    ? `${hand?.handNumber ?? pa?.handNumber}:${shownWinners.map((w) => `${w.playerId}=${w.amount}`).join(",")}`
+    : "";
   const pot = totalPot(view);
   const pots = hand?.pots ?? [];
 
@@ -45,8 +60,10 @@ export function Table({ view, onSit, onMe, send }: Props) {
     return { x: 50 + rx * Math.cos(theta), y: 50 + ry * Math.sin(theta) };
   };
 
+  useTableMotion(wrapRef, view, (seat) => pos(seat, 39 * 0.62, 37 * 0.62), winKey, winAmts);
+
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" ref={wrapRef}>
       <div className="felt">
         <div className="felt-inner" />
       </div>
@@ -54,8 +71,9 @@ export function Table({ view, onSit, onMe, send }: Props) {
       <div className="center">
         {hand ? (
           <>
-            <div className="pot">
-              Pot <b>{fmt(pot)}</b>
+            <div className="pot" data-pot>
+              {pot > 0 && <ChipStack amount={pot} bb={config.bigBlind} />}
+              <span className="potlabel">Pot <b>{fmt(pot)}</b></span>
               {pots.length > 1 && (
                 <span className="pots">
                   {pots.map((p, i) => (
@@ -74,11 +92,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
             )}
             {stud && studStatus && <div className="studstatus">{studStatus}</div>}
             <div className="phase">Hand #{hand.handNumber} · {stud ? (STUD_STREETS[hand.phase] ?? hand.phase) : hand.phase}</div>
-            {view.pendingAward && (
-              <div className="await">
-                {you.isHost ? `Award the pot (${fmt(view.pendingAward.amount)})` : `Waiting for the dealer to award the pot (${fmt(view.pendingAward.amount)})`}
-              </div>
-            )}
+            {pa && <AwardAnnounce view={view} winners={shownWinners} />}
           </>
         ) : (
           <div className="waiting">
@@ -89,11 +103,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
                 ? `Ante ${fmt(config.stud.ante)} · bets up to ${fmt(config.stud.maxBet)}, last round ${fmt(config.stud.maxBetLastRound)}`
                 : `${fmt(config.smallBlind)}/${fmt(config.bigBlind)}`}
             </div>
-            {view.pendingAward && (
-              <div className="await">
-                {you.isHost ? `Award the pot (${fmt(view.pendingAward.amount)})` : `Waiting for the dealer to award the pot (${fmt(view.pendingAward.amount)})`}
-              </div>
-            )}
+            {pa && <AwardAnnounce view={view} winners={shownWinners} />}
           </div>
         )}
       </div>
@@ -103,20 +113,22 @@ export function Table({ view, onSit, onMe, send }: Props) {
         const style = { left: `${p.x}%`, top: `${p.y}%` };
         if (!s) {
           return (
-            <div key={i} className="seat empty" style={style}>
+            <div key={i} className="seat empty" style={style} data-seat={i}>
               {you.seat === null ? (
                 <button className="sitbtn" onClick={() => onSit(i)}>Sit here</button>
               ) : (
-                <span className="muted small">Open</span>
+                <span className="openseat">Open</span>
               )}
             </div>
           );
         }
         const isMe = s.playerId === you.playerId;
-        const bp = pos(i, 39 * 0.62, 37 * 0.62);
+        const bp = pos(i, 39 * 0.62, 37 * (isMe ? 0.5 : 0.62));
         return (
           <SeatBlock
             key={i}
+            idx={i}
+            bb={config.bigBlind}
             s={s}
             isMe={isMe}
             style={style}
@@ -129,8 +141,10 @@ export function Table({ view, onSit, onMe, send }: Props) {
             now={now}
             stud={stud}
             wins={winnersByPlayer.get(s.playerId)}
-            showdownDim={!!hand?.winners && !winnersByPlayer.has(s.playerId)}
+            showdownDim={shownWinners.length > 0 && !winnersByPlayer.has(s.playerId)}
             betPos={bp}
+            canExtend={isMe && view.canExtend && config.extensionSec > 0}
+            extensionSec={config.extensionSec}
           />
         );
       })}
@@ -138,10 +152,21 @@ export function Table({ view, onSit, onMe, send }: Props) {
   );
 }
 
+function initials(name: string): string {
+  const w = name.trim().split(/\s+/).filter(Boolean);
+  return ((w[0]?.[0] ?? "?") + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase();
+}
+function hue(name: string): number {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+}
+
 function SeatBlock(props: {
+  idx: number; bb: number;
   s: SeatView; isMe: boolean; style: React.CSSProperties; toAct: boolean; deadline: number | null;
   timeoutSec: number; now: number; stud: boolean; wins?: WinnerView[]; showdownDim: boolean;
-  betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void;
+  betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void; canExtend: boolean; extensionSec: number;
 }) {
   const { s, isMe, toAct, wins } = props;
   const size = isMe ? "lg" : "sm";
@@ -166,46 +191,64 @@ function SeatBlock(props: {
   if (props.stud && (holeNodes.length > 0 || upNodes.length > 0)) {
     cards = (
       <div className="studcards">
-        {holeNodes.length > 0 && <div className="cardrow hole grp">{holeNodes}{isMe && <span className="cap">down</span>}</div>}
-        {upNodes.length > 0 && <div className="cardrow hole up grp">{upNodes}{isMe && <span className="cap">up</span>}</div>}
+        {holeNodes.length > 0 && <div className="cardrow hole grp" data-n={holeNodes.length}>{holeNodes}{isMe && <span className="cap">down</span>}</div>}
+        {upNodes.length > 0 && <div className="cardrow hole up grp" data-n={upNodes.length}>{upNodes}{isMe && <span className="cap">up</span>}</div>}
       </div>
     );
   } else if (holeNodes.length > 0) {
-    cards = <div className="cardrow hole">{holeNodes}</div>;
+    cards = <div className="cardrow hole" data-n={holeNodes.length}>{holeNodes}</div>;
   }
   const declBadge = s.declared ? s.declared.toUpperCase() : null;
+  const av = s.avatar;
+  const isNum = !!av && /^\d+$/.test(av);
+  const avStyle: React.CSSProperties = av && !isNum
+    ? {}
+    : { background: `radial-gradient(circle at 35% 28%, hsl(${hue(s.name)} 38% 42%), hsl(${hue(s.name)} 40% 22%))` };
+  const R = 24;
+  const C = 2 * Math.PI * R;
+  const low = secs !== null && secs <= 5;
 
   return (
     <>
-      <div className={cls} style={props.style}>
+      <div className={cls} style={props.style} data-seat={props.idx}>
         {cards}
-        <div className={`plate ${isMe ? "clickable" : ""}`} onClick={isMe ? props.onMe : undefined} title={isMe ? "Change avatar" : undefined}>
-          <div className="name"><Avatar a={s.avatar} />{s.avatar ? " " : ""}{s.name}{isMe ? " (you)" : ""}</div>
-          <div className="stack">{fmt(s.stack)}</div>
+        <div className="avwrap">
           {frac !== null && (
-            <div className="timer" role="progressbar" aria-valuenow={secs ?? 0}>
-              <i className={frac < 0.25 ? "low" : ""} style={{ width: `${frac * 100}%` }} />
-            </div>
+            <svg className={`ring ${low ? "low" : ""}`} viewBox="0 0 56 56" role="progressbar" aria-valuenow={secs ?? 0} aria-label="Time to act">
+              <circle className="ring-track" cx="28" cy="28" r={R} />
+              <circle className="ring-fill" cx="28" cy="28" r={R} strokeDasharray={`${C * frac} ${C}`} transform="rotate(-90 28 28)" />
+            </svg>
           )}
-          <div className="tags">
-            {declBadge && <span className="tag decl">{declBadge}</span>}
-            {!declBadge && s.hasDeclared && <span className="tag decl ok" aria-label="Declared">✓</span>}
-            {s.allIn && <span className="tag allin">All-in</span>}
-            {s.folded && <span className="tag">Folded</span>}
-            {s.sittingOut && <span className="tag">Sitting out</span>}
-            {!s.connected && <span className="tag warn">Offline</span>}
-            {s.timeLimitSec !== null && <span className="tag timelim">⏱ {s.timeLimitSec === 0 ? "off" : `${s.timeLimitSec}s`}</span>}
+          <div className={`avatar-circle ${av && !isNum ? "emoji" : ""}`} style={avStyle} aria-hidden="true">
+            {av ? av : initials(s.name)}
           </div>
+          {s.isButton && <span className="dealer" title="Dealer">D</span>}
+          {!s.connected && <span className="offdot" role="img" aria-label="Offline" title="Offline" />}
+          {secs !== null && <div className={`secs ${low ? "low" : ""}`}>{secs}s</div>}
         </div>
-        {s.isButton && <span className="dealer" title="Dealer">D</span>}
+        <div className={`plate ${isMe ? "clickable" : ""}`} onClick={isMe ? props.onMe : undefined} title={isMe ? "Change avatar" : undefined}>
+          <div className="name">{s.name}{isMe ? " (you)" : ""}</div>
+          <div className="stack">{fmt(s.stack)}</div>
+        </div>
+        <div className="tags">
+          {declBadge && <span className="tag decl">{declBadge}</span>}
+          {!declBadge && s.hasDeclared && <span className="tag decl ok" aria-label="Declared">✓</span>}
+          {s.allIn && <span className="tag allin">All-in</span>}
+          {s.folded && <span className="tag fold">Fold</span>}
+          {s.sittingOut && <span className="tag">Away</span>}
+          {s.timeLimitSec !== null && <span className="tag timelim">⏱ {s.timeLimitSec === 0 ? "off" : `${s.timeLimitSec}s`}</span>}
+        </div>
         {wins ? (
           <div className="seat-note win">
             +{fmt(winTotal)}{wins.some((w) => w.half !== "whole") ? ` ${wins.map((w) => (w.half === "high" ? "High" : w.half === "low" ? "Low" : "")).filter(Boolean).join("+")}` : ""}{wins[0]?.handName ? ` · ${wins[0].handName}` : ""}
           </div>
-        ) : s.lastAction ? (
+        ) : s.lastAction && !(s.folded && /^fold/i.test(s.lastAction)) ? (
           <div className={`seat-note ${hostCtl ? "shift" : ""}`}>{s.lastAction}</div>
         ) : null}
-        {secs !== null && <div className="secs">{secs}s</div>}
+        {wins && <span key={winTotal} className="floatwin" aria-hidden="true">+{fmt(winTotal)}</span>}
+        {props.canExtend && (
+          <button type="button" className="extendbtn" onClick={() => props.send("extendTime")}>+{props.extensionSec}s</button>
+        )}
         {hostCtl && (
           <div className="hostctl">
             {props.deadline !== null && <button onClick={() => props.send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}
@@ -214,10 +257,26 @@ function SeatBlock(props: {
         )}
       </div>
       {s.bet > 0 && (
-        <div className="bet" style={{ left: `${props.betPos.x}%`, top: `${props.betPos.y}%` }}>
-          <span className="chip" />{fmt(s.bet)}
+        <div className="bet" data-bet={props.idx} style={{ left: `${props.betPos.x}%`, top: `${props.betPos.y}%` }}>
+          <ChipStack amount={s.bet} bb={props.bb} small />
+          <span className="betamt">{fmt(s.bet)}</span>
         </div>
       )}
     </>
+  );
+}
+
+/** Shown to EVERY player while the dealer finalizes the payout. */
+function AwardAnnounce({ view, winners }: { view: TableView; winners: WinnerView[] }) {
+  const pa = view.pendingAward!;
+  const rows = winners.map((w) => {
+    const half = w.half === "high" ? " (High)" : w.half === "low" ? " (Low)" : "";
+    return `${nameOf(view, w.playerId)} ${fmt(w.amount)}${half}${w.handName ? ` · ${w.handName}` : ""}`;
+  });
+  return (
+    <div className="await" role="status">
+      <div>{view.you.isHost ? "Confirm the award below" : "The dealer is confirming the award"} · {fmt(pa.amount)}</div>
+      {rows.length > 0 && <div className="awardlist">{rows.map((r, i) => <div key={i}>{r}</div>)}</div>}
+    </div>
   );
 }

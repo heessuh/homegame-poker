@@ -3,14 +3,15 @@ import { DEFAULT_HOUSE_LIMIT, DEFAULT_STUD, VARIANTS } from "@homegame/engine";
 import type { HouseLimit, SeatView, StudStakes, TableConfig, TableView, VariantId } from "@homegame/engine";
 import { CardRow } from "./CardView";
 import type { Send } from "./App";
-import { fmt, fmtWith, isStud, sha256Hex } from "./util";
+import { fmt, fmtWith, isStud, sha256Hex, shortGame } from "./util";
+import type { Card, HandRecord } from "@homegame/engine";
 import { MoneyInput, Who, avatarOf } from "./ui";
 import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
-export type Tab = "log" | "ledger" | "last" | "standings" | "host";
+export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "host";
 
 export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: Send; tab: Tab; setTab: (t: Tab) => void }) {
-  const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["last", "Last hand"]];
+  const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["history", "History"], ["last", "Last hand"]];
   if (view.tournament) tabs.splice(1, 0, ["standings", "Standings"]);
   if (view.you.isHost) tabs.push(["host", "Host"]);
   return (
@@ -21,7 +22,8 @@ export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: 
         ))}
       </div>
       <div className="tabbody">
-        {tab === "log" && <Log lines={view.log} />}
+        {tab === "log" && <Log lines={view.log} send={send} tableId={view.tableId} />}
+        {tab === "history" && <History view={view} send={send} />}
         {tab === "ledger" && <Ledger view={view} />}
         {tab === "standings" && <Standings view={view} />}
         {tab === "last" && <LastHand view={view} />}
@@ -31,14 +33,42 @@ export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: 
   );
 }
 
-function Log({ lines }: { lines: string[] }) {
+function Log({ lines, send, tableId }: { lines: string[]; send: Send; tableId: string }) {
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [lines.length]);
-  if (lines.length === 0) return <p className="muted">Nothing yet.</p>;
+  const [full, setFull] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!full) end.current?.scrollIntoView({ block: "nearest" }); }, [lines.length, full]);
+  const load = () => {
+    setBusy(true);
+    send("getLog", (l) => { setFull(l); setBusy(false); });
+  };
+  const download = () => {
+    const text = (full ?? lines).join("\n") + "\n";
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mochapoker-${tableId}-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const shown = full ?? lines;
   return (
-    <div className="log">
-      {lines.map((l, i) => <div key={i}>{l}</div>)}
-      <div ref={end} />
+    <div>
+      <div className="btn-row wrap logbtns">
+        {!full
+          ? <button className="btn small" disabled={busy} onClick={load}>{busy ? "Loading…" : "Full session log"}</button>
+          : <button className="btn small" onClick={() => setFull(null)}>Back to recent</button>}
+        <button className="btn small" onClick={download}>Download log</button>
+      </div>
+      {full && <p className="muted small">Whole session · {full.length} lines</p>}
+      {shown.length === 0 ? <p className="muted">Nothing yet.</p> : (
+        <div className="log">
+          {shown.map((l, i) => <div key={i}>{l}</div>)}
+          <div ref={end} />
+        </div>
+      )}
     </div>
   );
 }
@@ -62,9 +92,49 @@ function Ledger({ view }: { view: TableView }) {
 
 function LastHand({ view }: { view: TableView }) {
   const h = view.lastHand;
-  const [result, setResult] = useState<null | { ok: boolean; computed?: string; error?: string }>(null);
-  useEffect(() => setResult(null), [h?.handNumber]);
   if (!h) return <p className="muted">No completed hands yet.</p>;
+  return <HandDetail h={h} view={view} />;
+}
+
+function History({ view, send }: { view: TableView; send: Send }) {
+  const [sel, setSel] = useState<number | null>(null);
+  const [rec, setRec] = useState<HandRecord | null | undefined>(undefined); // undefined = loading
+  const open = (n: number) => {
+    setSel(n);
+    setRec(undefined);
+    send("getHand", { handNumber: n }, (r) => setRec(r));
+  };
+  if (sel !== null) {
+    return (
+      <div>
+        <button className="btn small" onClick={() => setSel(null)}>← All hands</button>
+        {rec === undefined && <p className="muted">Loading hand #{sel}…</p>}
+        {rec === null && <p className="muted">Hand #{sel} is no longer available.</p>}
+        {rec && <HandDetail h={rec} view={view} />}
+      </div>
+    );
+  }
+  if (view.handList.length === 0) return <p className="muted">No finished hands yet.</p>;
+  return (
+    <ul className="hlist">
+      {view.handList.map((h) => (
+        <li key={h.handNumber}>
+          <button type="button" className="hitem" onClick={() => open(h.handNumber)}>
+            <span className="hn">#{h.handNumber}</span>
+            <span className="hg">{shortGame(VARIANTS[h.variant]?.name ?? h.variant)}</span>
+            <span className="ht">{new Date(h.endedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+            <span className="hp">Pot {fmt(h.pot)}</span>
+            <span className="hr">{h.result}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function HandDetail({ h, view }: { h: HandRecord; view: TableView }) {
+  const [result, setResult] = useState<null | { ok: boolean; computed?: string; error?: string }>(null);
+  useEffect(() => setResult(null), [h.handNumber]);
   const verify = async () => {
     try {
       const computed = await sha256Hex(`${h.reveal.salt}:${h.reveal.deck.join(",")}`);
@@ -73,19 +143,36 @@ function LastHand({ view }: { view: TableView }) {
       setResult({ ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   };
+  const name = (id: string) => h.names?.[id] ?? view.ledger.find((l) => l.playerId === id)?.name ?? id;
+  const shown = Object.entries(h.shown ?? {}) as [string, Card[]][];
+  const winIds = new Set(h.winners.map((w) => w.playerId));
   return (
     <div className="lasthand">
-      <h4>Hand #{h.handNumber} · {VARIANTS[h.variant].name}</h4>
+      <h4>Hand #{h.handNumber} · {VARIANTS[h.variant]?.name ?? h.variant}</h4>
+      {h.endedAt > 0 && <p className="muted small">{new Date(h.endedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</p>}
       {h.board.length > 0 && <CardRow cards={h.board} size="sm" className="flat" />}
-      <ul className="summary">{h.summary.map((s, i) => <li key={i}>{s}</li>)}</ul>
+      {shown.length > 0 && (
+        <>
+          <h4>{h.board.length > 0 ? "Shown hands" : "Cards"}</h4>
+          {shown.map(([id, cards]) => (
+            <div key={id} className="shownrow">
+              <span className={winIds.has(id) ? "pos" : ""}>{name(id)}{winIds.has(id) ? " ★" : ""}</span>
+              <CardRow cards={cards} size="sm" className="flat" />
+            </div>
+          ))}
+        </>
+      )}
+      <h4>Winners</h4>
       <ul className="summary">
         {h.winners.map((w, i) => (
           <li key={i}>
-            <b>{view.ledger.find((l) => l.playerId === w.playerId)?.name ?? w.playerId}</b> won {fmt(w.amount)}
+            <b>{name(w.playerId)}</b> won {fmt(w.amount)}
             {w.half !== "whole" ? ` (${w.half})` : ""}{w.handName ? ` with ${w.handName}` : ""}
           </li>
         ))}
       </ul>
+      <h4>Summary</h4>
+      <ul className="summary">{h.summary.map((s, i) => <li key={i}>{s}</li>)}</ul>
       <h4>Shuffle proof</h4>
       <div className="kv"><span>Committed hash</span><code>{h.deckHash}</code></div>
       <div className="kv"><span>Salt</span><code>{h.reveal.salt}</code></div>
@@ -130,9 +217,13 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
   if (draft.minBuyIn > draft.maxBuyIn) problems.push("Min buy-in can’t be bigger than the max buy-in.");
   if (stud && (studCfg.minBet < 1 || studCfg.minBet > studCfg.maxBet || studCfg.maxBet > studCfg.maxBetLastRound)) problems.push("Bets need min ≤ max ≤ last-round max, and min at least one cent.");
   if (!stud && hl.enabled && (hl.minBet < 1 || hl.minBet > hl.maxBet)) problems.push("House limit: min bet must be at least one cent and no more than the max.");
+  const t = draft.actionTimeoutSec;
+  if (!Number.isInteger(t) || (t !== 0 && (t < 5 || t > 300))) problems.push("Action timer must be 0 (off) or 5 to 300 seconds.");
+  const ex = draft.extensionSec;
+  if (!Number.isInteger(ex) || ex < 0 || ex > 300) problems.push("Player extension must be 0 (off) to 300 seconds.");
   const maxPlayers = VARIANTS[draft.variant].maxPlayers;
   const players = view.seats.filter((s): s is SeatView => s !== null);
-  const [delta, setDelta] = useState(1000);
+  const [rebuyAmt, setRebuyAmt] = useState<Record<string, number>>({});
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [moveAmt, setMoveAmt] = useState(1000);
@@ -171,7 +262,8 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         {!stud && <label>Small blind<MoneyInput dollars={dol} value={draft.smallBlind} min={1} onChange={money("smallBlind")} label="Small blind" /></label>}
         {!stud && <label>Big blind<MoneyInput dollars={dol} value={draft.bigBlind} min={1} onChange={money("bigBlind")} label="Big blind" /></label>}
         <label>Max seats (2–{maxPlayers})<input type="number" min={2} max={maxPlayers} value={draft.maxSeats} onChange={num("maxSeats")} /></label>
-        <label>Action timer (sec, 0 = off)<input type="number" min={0} value={draft.actionTimeoutSec} onChange={num("actionTimeoutSec")} /></label>
+        <label>Action timer (seconds, 0 = off, else 5–300)<input type="number" min={0} max={300} value={draft.actionTimeoutSec} onChange={num("actionTimeoutSec")} /></label>
+        <label>Player extension (seconds, 0 = off)<input type="number" min={0} max={300} value={draft.extensionSec} onChange={num("extensionSec")} /></label>
         <label>Min buy-in<MoneyInput dollars={dol} value={draft.minBuyIn} min={1} onChange={money("minBuyIn")} label="Min buy-in" /></label>
         <label>Max buy-in<MoneyInput dollars={dol} value={draft.maxBuyIn} min={1} onChange={money("maxBuyIn")} label="Max buy-in" /></label>
         {!stud && (
@@ -209,14 +301,18 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         )}
         <label className="full">Pot awarding
           <select value={draft.awardMode} onChange={(e) => setDraft({ ...draft, awardMode: e.target.value as TableConfig["awardMode"] })}>
+            <option value="host">Dealer decides (default)</option>
             <option value="auto">Automatic</option>
-            <option value="host">Dealer decides</option>
           </select>
         </label>
       </div>
       {problems.map((p) => <p key={p} className="note">{p}</p>)}
       <button className="btn small" disabled={problems.length > 0 || JSON.stringify(cashPart(draft)) === JSON.stringify(cashPart(source))} onClick={apply}>Apply settings</button>
       <p className="muted small">Applies next hand if one is in progress.</p>
+      <div className="defaults">
+        <button className="btn small" onClick={() => send("host:saveDefaults")}>Save as house defaults</button>
+        <p className="muted small">New tables will start with these settings.</p>
+      </div>
 
       <h4>Mode</h4>
       <div className="form">
@@ -257,16 +353,18 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
       </div>
 
       <h4>Players</h4>
-      <div className="adjust">
-        <span>Stack adjust amount</span>
-        <MoneyInput value={delta} min={1} onChange={setDelta} label="Stack adjust amount" />
-      </div>
+      <p className="muted small">Rebuys and cash-outs are dealer-only and go into the ledger. They apply between hands (queued during a hand).</p>
       {players.length === 0 && <p className="muted">Nobody is seated.</p>}
       {players.map((s) => (
         <div key={s.playerId} className="prow">
-          <span className="pname"><Who avatar={s.avatar} name={s.name} /> <span className="muted">{fmt(s.stack)}</span></span>
-          <button className="btn tiny" title="Remove chips" onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: -delta })}>−</button>
-          <button className="btn tiny" title="Add chips" onClick={() => send("host:adjustStack", { playerId: s.playerId, delta })}>+</button>
+          <span className="pname"><Who avatar={s.avatar} name={s.name} /> <span className="muted">{fmt(s.stack)}</span>{s.stack === 0 && !s.inHand && <span className="muted"> · out of chips</span>}</span>
+          <div className="pmoney">
+            <MoneyInput value={rebuyAmt[s.playerId] ?? view.config.minBuyIn} min={1} onChange={(n) => setRebuyAmt((m) => ({ ...m, [s.playerId]: n }))} label={`Rebuy or cash-out amount for ${s.name}`} />
+            <button className="btn tiny call" title="Record a buy-in and add these chips to the stack"
+              onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: rebuyAmt[s.playerId] ?? view.config.minBuyIn })}>Rebuy</button>
+            <button className="btn tiny" title="Record a cash-out and remove these chips from the stack"
+              onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: -(rebuyAmt[s.playerId] ?? view.config.minBuyIn) })}>Cash out</button>
+          </div>
           <button
             className="btn tiny"
             title={s.sittingOut ? "Deal this player back in" : "Mark this player as away"}

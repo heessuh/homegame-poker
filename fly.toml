@@ -5,6 +5,14 @@ primary_region = "iad"
 
 [build]
 
+[env]
+  DATA_DIR = "/data"
+
+# Table snapshots and house defaults live here so games survive restarts and idle stops.
+[mounts]
+  source = "mochapoker_data"
+  destination = "/data"
+
 [http_service]
   internal_port = 8080
   force_https = true

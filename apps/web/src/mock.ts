@@ -2,7 +2,7 @@ import { DEFAULT_CONFIG, DEFAULT_STUD, TOURNAMENT_PRESETS } from "@homegame/engi
 import type { Card, Declaration, HandView, SeatView, TableConfig, TableView, VariantId } from "@homegame/engine";
 import { cardsOf, sha256Hex } from "./util";
 
-export type FixtureId = "plo5-turn" | "nlhe-showdown" | "waiting-host" | "tournament-plo4" | "award-pending"
+export type FixtureId = "plo5-turn" | "nlhe-showdown" | "waiting-host" | "tournament-plo4" | "award-pending" | "award-viewer" | "history-long"
   | "murder5-bet" | "murder5-exchange" | "murder5-declare" | "murder5-showdown";
 export const FIXTURE_LABELS: Record<FixtureId, string> = {
   "plo5-turn": "PLO5 turn, your action",
@@ -10,6 +10,8 @@ export const FIXTURE_LABELS: Record<FixtureId, string> = {
   "waiting-host": "Waiting (you host)",
   "tournament-plo4": "Tournament PLO4, level 5 (you host)",
   "award-pending": "Dealer awards pot (you host)",
+  "award-viewer": "Award pending (you are not the host)",
+  "history-long": "Long session history (60 hands)",
   "murder5-bet": "5-Murder 4th card, your bet",
   "murder5-exchange": "5-Murder Exchange 1, your swap",
   "murder5-declare": "5-Murder Declare",
@@ -65,7 +67,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p3", name: "Okonkwo", buyIns: 2000, cashOuts: 0, stack: 2150, net: 150 },
       { playerId: "p4", name: "Priya", buyIns: 4000, cashOuts: 0, stack: 4800, net: 800 },
     ],
-    pendingAward: null, tournament: null,
+    pendingAward: null, handList: [], canExtend: false, tournament: null,
     log: [
       "Hand #12 started (5-Card Pot-Limit Omaha High)",
       "Priya posts the small blind $0.10",
@@ -101,7 +103,13 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       handNumber: 30, variant: "nlhe", deckHash, reveal: { deck, salt }, board: cardsOf("Td 5s 5h 8c Jd"),
       winners: [{ playerId: "p1", amount: 640, potIndex: 0, half: "whole", handName: "Pair of Fives" }],
       summary: ["Alice wins $6.40 with Pair of Fives", "Chen folded on the turn"],
+      shown: { p1: cardsOf("5c Ac"), p2: cardsOf("Kd Qd") }, names: { p1: "Alice", p2: "You", p4: "Chen" }, endedAt: now - 120000,
     },
+    handList: [
+      { handNumber: 30, variant: "nlhe", endedAt: now - 120000, pot: 640, result: "Alice $6.40" },
+      { handNumber: 29, variant: "nlhe", endedAt: now - 300000, pot: 180, result: "Chen $1.80" },
+    ],
+    canExtend: true,
     ledger: [
       { playerId: "p1", name: "Alice", buyIns: 2000, cashOuts: 0, stack: 2120, net: 120 },
       { playerId: "p2", name: "You", buyIns: 1000, cashOuts: 0, stack: 980, net: -20 },
@@ -131,7 +139,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p2", name: "Dana", buyIns: 2000, cashOuts: 0, stack: 2000, net: 0 },
       { playerId: "p5", name: "Eli", buyIns: 1000, cashOuts: 0, stack: 1000, net: 0 },
     ],
-    pendingAward: null, tournament: null,
+    pendingAward: null, handList: [], canExtend: false, tournament: null,
     log: ["Table created", "Dana sat at seat 3 with $20", "Eli sat at seat 6 with $10"],
   };
 
@@ -167,7 +175,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p4", name: "Priya", buyIns: 5000, cashOuts: 0, stack: 4400, net: -600 },
     ],
     log: ["Level 5 started: 300/600", "Okonkwo is eliminated in 6th place", "Sam is eliminated in 5th place", "Hand #58 started", "Marta raises to 400"],
-    pendingAward: null,
+    pendingAward: null, handList: [], canExtend: false,
     tournament: {
       status: "running", levelIndex: 4, level: levels[4], nextLevel: levels[5], levelEndsAt: now + 7 * 60000 + 23000,
       levelRemainingMs: 7 * 60000 + 23000, startingStack: 5000, lateRegOpen: false, playersLeft: 4,
@@ -198,6 +206,22 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     },
   };
 
+  // Same pending award, but the viewer (Bo's seat 2 -> "You") is a plain player; the dealer is Alice.
+  const awardViewer: TableView = {
+    ...award,
+    hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false },
+    hand: { ...award.hand!, winners: [{ playerId: "p4", amount: 2460, potIndex: 0, half: "whole", handName: "Three of a kind, Nines" }] },
+  };
+
+  // Long session history.
+  const variants: VariantId[] = ["nlhe", "plo4", "plo5", "nlhe-hilo", "plo4-8"];
+  const histRecords = Array.from({ length: 60 }, (_, i) => {
+    const n = 60 - i;
+    return { handNumber: n, variant: variants[n % variants.length], endedAt: now - i * 4 * 60000, pot: 200 + ((n * 137) % 4000) };
+  });
+  const histList = histRecords.map((r) => ({ ...r, result: r.handNumber % 3 === 0 ? "Ana $" + (r.pot / 200).toFixed(2) + " (High), Bo $" + (r.pot / 200).toFixed(2) + " (Low)" : "Chen $" + (r.pot / 100).toFixed(2) }));
+  const history: TableView = { ...nlhe, handList: histList };
+
   // ---- 5-Murder (stud) ----
   const m5Cfg: TableConfig = {
     ...DEFAULT_CONFIG, variant: "murder5" as unknown as VariantId, maxSeats: 8, actionTimeoutSec: 30, minBuyIn: 500, maxBuyIn: 5000,
@@ -221,7 +245,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   });
   const m5Base = {
     tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true }, config: m5Cfg, pendingConfig: null,
-    status: "playing" as const, lastHand: null, ledger: m5Ledger, pendingAward: null, tournament: null,
+    status: "playing" as const, lastHand: null, ledger: m5Ledger, pendingAward: null, handList: [], canExtend: false, tournament: null,
   };
   const noBet = { canFold: false, canCheck: false, callAmount: 0, minRaiseTo: null, maxRaiseTo: null };
 
@@ -266,6 +290,6 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
 
   return {
     "murder5-bet": m5Bet, "murder5-exchange": m5Ex, "murder5-declare": m5Decl, "murder5-showdown": m5Show,
-    "plo5-turn": plo, "nlhe-showdown": nlhe, "waiting-host": waiting, "tournament-plo4": tourney, "award-pending": award,
+    "plo5-turn": plo, "nlhe-showdown": nlhe, "waiting-host": waiting, "tournament-plo4": tourney, "award-pending": award, "award-viewer": awardViewer, "history-long": history,
   };
 }

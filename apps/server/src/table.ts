@@ -12,6 +12,7 @@ import {
   startHand,
   timeoutAction,
   type Card,
+  type HandListItem,
   type HandRecord,
   type HandState,
   type HandView,
@@ -55,9 +56,11 @@ export interface TableOptions {
   deckSource: () => Card[];
   onChange: () => void;
   config?: Partial<TableConfig>;
+  /** Resume a table saved earlier (see Table.snapshot). Call resume() once the table is registered. */
+  snapshot?: TableSnapshot;
 }
 
-interface Player {
+export interface Player {
   id: string;
   token: string;
   name: string;
@@ -73,8 +76,9 @@ interface Player {
   // queued for the end of the current hand
   standQueued: boolean;
   kickQueued: boolean;
-  rebuyQueued: number;
   adjustQueued: number;
+  /** Sitting out only because the chips ran out (a dealer top-up sits them back in). */
+  busted: boolean;
   avatar: string | null;
   /** Host override of the action timer: null = table default, 0 = no limit. */
   timerSec: number | null;
@@ -82,18 +86,49 @@ interface Player {
   place: number | null;
 }
 
-interface Transfer {
+export interface Transfer {
   fromId: string;
   toId: string;
   amount: number;
 }
 
-interface TourneyState {
+export interface TourneyState {
   status: "registering" | "running" | "finished";
   levelIndex: number;
   levelsCompleted: number;
   levelEndsAt: number | null;
   levelRemainingMs: number;
+}
+
+/** Everything needed to resume a table after a restart (JSON-safe). Contains secrets: tokens and the undealt deck. */
+export interface TableSnapshot {
+  version: number;
+  tableId: string;
+  savedAt: number;
+  config: TableConfig;
+  pendingConfig: TableConfig | null;
+  status: "waiting" | "playing" | "paused";
+  hostId: string | null;
+  players: Omit<Player, "connections">[];
+  hand: {
+    state: HandState;
+    deckHash: string;
+    reveal: { deck: Card[]; salt: string };
+    participants: string[];
+    startStacks: [string, number][];
+    awarded: WinnerView[] | null;
+    extended: boolean;
+  } | null;
+  pendingAward: PendingAward | null;
+  lastHand: HandRecord | null;
+  history: HandRecord[];
+  handCounter: number;
+  buttonSeat: number;
+  endedAt: number | null;
+  nextDelay: number;
+  transfers: Transfer[];
+  tournament: { status: TourneyState["status"]; levelIndex: number; levelsCompleted: number; levelRemainingMs: number; clockRunning: boolean } | null;
+  log: string[];
 }
 
 interface HandCtx {
@@ -102,13 +137,18 @@ interface HandCtx {
   reveal: { deck: Card[]; salt: string };
   participants: Set<string>;
   actionDeadline: number | null;
+  /** The player to act already used this turn's time extension. */
+  extended: boolean;
   /** Stack of each participant when the hand began (for tournament ranking). */
   startStacks: Map<string, number>;
   /** What the host actually awarded, once done (host award mode). */
   awarded: WinnerView[] | null;
 }
 
-const LOG_CAP = 200;
+const LOG_CAP = 20_000;
+const VIEW_LOG = 200;
+const HISTORY_CAP = 2000;
+const SNAPSHOT_VERSION = 1;
 const FIRST_HAND_DELAY = 1000;
 const SHOWDOWN_DELAY = 4000;
 const FOLD_DELAY = 2500;
@@ -116,7 +156,7 @@ const MIN_DELAY = 1000;
 const HOST_HANDOFF_MS = 60_000;
 
 const CONFIG_KEYS = [
-  "variant", "smallBlind", "bigBlind", "maxSeats", "actionTimeoutSec", "minBuyIn", "maxBuyIn", "awardMode", "mode", "tournament",
+  "variant", "smallBlind", "bigBlind", "maxSeats", "actionTimeoutSec", "extensionSec", "minBuyIn", "maxBuyIn", "awardMode", "mode", "tournament",
   "stud", "houseLimit", "money",
 ] as const;
 
@@ -175,6 +215,8 @@ export class Table {
   private readonly byToken = new Map<string, string>();
   private hand: HandCtx | null = null;
   private lastHand: HandRecord | null = null;
+  private history: HandRecord[] = [];
+  private pendingClock = false;
   private handCounter = 0;
   private buttonSeat = -1;
   private log: string[] = [];
@@ -201,6 +243,128 @@ export class Table {
     this.config = mergeConfig(DEFAULT_CONFIG, opts.config);
     if (this.config.mode === "tournament") this.t = this.newTourney();
     this.idleSince = this.now();
+    if (opts.snapshot) this.load(opts.snapshot);
+  }
+
+  // ------------------------------------------------------------------ persistence
+
+  /** JSON-safe copy of the whole table. The result shares structure with live state: serialize it at once. */
+  snapshot(): TableSnapshot {
+    const h = this.hand;
+    const t = this.t;
+    return {
+      version: SNAPSHOT_VERSION,
+      tableId: this.tableId,
+      savedAt: this.now(),
+      config: this.config,
+      pendingConfig: this.pendingConfig,
+      status: this.status,
+      hostId: this.hostId,
+      players: [...this.players.values()].map(({ connections: _c, ...rest }) => rest),
+      hand: h
+        ? {
+            state: h.state, deckHash: h.deckHash, reveal: h.reveal, participants: [...h.participants],
+            startStacks: [...h.startStacks], awarded: h.awarded, extended: h.extended,
+          }
+        : null,
+      pendingAward: this.pendingAward,
+      lastHand: this.lastHand,
+      history: this.history,
+      handCounter: this.handCounter,
+      buttonSeat: this.buttonSeat,
+      endedAt: this.endedAt,
+      nextDelay: this.nextDelay,
+      transfers: this.transfers,
+      tournament: t
+        ? {
+            status: t.status, levelIndex: t.levelIndex, levelsCompleted: t.levelsCompleted,
+            levelRemainingMs: t.levelEndsAt !== null ? Math.max(0, t.levelEndsAt - this.now()) : t.levelRemainingMs,
+            clockRunning: t.levelEndsAt !== null,
+          }
+        : null,
+      log: this.log,
+    };
+  }
+
+  private load(s: TableSnapshot): void {
+    this.config = mergeConfig(DEFAULT_CONFIG, s.config);
+    this.pendingConfig = s.pendingConfig ? mergeConfig(DEFAULT_CONFIG, s.pendingConfig) : null;
+    this.status = s.status;
+    this.hostId = s.hostId;
+    for (const sp of s.players) {
+      const p: Player = { ...sp, connections: 0, busted: sp.busted ?? false };
+      this.players.set(p.id, p);
+      this.byToken.set(p.token, p.id);
+    }
+    this.hand = s.hand
+      ? {
+          state: s.hand.state, deckHash: s.hand.deckHash, reveal: s.hand.reveal, participants: new Set(s.hand.participants),
+          actionDeadline: null, extended: s.hand.extended, startStacks: new Map(s.hand.startStacks), awarded: s.hand.awarded,
+        }
+      : null;
+    this.pendingAward = s.pendingAward;
+    this.lastHand = s.lastHand;
+    this.history = s.history ?? [];
+    this.handCounter = s.handCounter;
+    this.buttonSeat = s.buttonSeat;
+    this.endedAt = s.endedAt;
+    this.nextDelay = s.nextDelay;
+    this.transfers = s.transfers ?? [];
+    this.log = s.log ?? [];
+    this.t = s.tournament
+      ? { status: s.tournament.status, levelIndex: s.tournament.levelIndex, levelsCompleted: s.tournament.levelsCompleted, levelEndsAt: null, levelRemainingMs: s.tournament.levelRemainingMs }
+      : null;
+    this.pendingClock = !!s.tournament?.clockRunning;
+    // Everyone is offline until they reconnect.
+    this.hostOfflineSince = this.hostId ? this.now() : null;
+  }
+
+  /** After a restore: restart the level clock, give whoever is to act a fresh full clock, and schedule the next hand. */
+  resume(): void {
+    if (this.t && this.pendingClock && this.t.status === "running") {
+      this.t.levelEndsAt = this.now() + this.t.levelRemainingMs;
+      this.armLevelTimer();
+    }
+    this.pendingClock = false;
+    if (this.live()) this.settle();
+    this.changed();
+  }
+
+  /** Returns the settings every new table should start with (the latest, including a change waiting for the next hand). */
+  hostSaveDefaults(playerId: string): TableConfig {
+    this.requireHost(playerId);
+    this.addLog("Saved these settings as the house defaults");
+    this.changed();
+    return cloneConfig(this.pendingConfig ?? this.config);
+  }
+
+  getHand(handNumber: unknown): HandRecord | null {
+    if (!isInt(handNumber)) return null;
+    return this.history.find((r) => r.handNumber === handNumber) ?? null;
+  }
+
+  getLog(): string[] {
+    return [...this.log];
+  }
+
+  private handList(): HandListItem[] {
+    const out: HandListItem[] = [];
+    const label: Record<string, string> = { high: " (High)", low: " (Low)", whole: "" };
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const r = this.history[i]!;
+      const groups = new Map<string, { id: string; half: string; amount: number }>();
+      for (const w of r.winners) {
+        const key = `${w.playerId}|${w.half}`;
+        const g = groups.get(key) ?? { id: w.playerId, half: w.half, amount: 0 };
+        g.amount += w.amount;
+        groups.set(key, g);
+      }
+      const result = [...groups.values()]
+        .map((g) => `${r.names[g.id] ?? this.players.get(g.id)?.name ?? "Someone"} ${this.m(g.amount)}${label[g.half] ?? ""}`)
+        .join(", ");
+      out.push({ handNumber: r.handNumber, variant: r.variant, endedAt: r.endedAt, pot: r.winners.reduce((n, w) => n + w.amount, 0), result });
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ identity
@@ -218,7 +382,7 @@ export class Table {
       const id = randomBytes(8).toString("hex");
       p = {
         id, token, name: this.uniqueName(name, id), connections: 0, seat: null, stack: 0, sittingOut: false,
-        timeouts: 0, buyIns: 0, cashOuts: 0, banned: false, standQueued: false, kickQueued: false, rebuyQueued: 0, adjustQueued: 0,
+        timeouts: 0, buyIns: 0, cashOuts: 0, banned: false, standQueued: false, kickQueued: false, adjustQueued: 0, busted: false,
         avatar: avatar ?? null, timerSec: null, place: null,
       };
       this.players.set(id, p);
@@ -327,6 +491,7 @@ export class Table {
     if (!tour) p.buyIns += buyIn;
     p.place = null;
     p.sittingOut = false;
+    p.busted = false;
     p.timeouts = 0;
     this.clearQueued(p);
     this.addLog(`${p.name} sat in seat ${seat + 1} with ${this.m(buyIn)}`);
@@ -351,29 +516,13 @@ export class Table {
     if (p.seat === null) throw new UserError("You are not seated.");
     if (typeof sittingOut !== "boolean") throw new UserError("Invalid request.");
     if (!sittingOut) {
-      if (p.stack <= 0) throw new UserError("Rebuy before sitting back in.");
+      if (p.stack <= 0) throw new UserError("Ask the dealer for more chips.");
       p.timeouts = 0;
     }
+    p.busted = false;
     if (p.sittingOut !== sittingOut) this.addLog(`${p.name} is ${sittingOut ? "sitting out" : "back in"}`);
     p.sittingOut = sittingOut;
     this.settleIfActor(p);
-    this.changed();
-  }
-
-  rebuy(playerId: string, amount: number): void {
-    const p = this.get(playerId);
-    if (this.isTourney()) throw new UserError("Rebuys are off in this tournament.");
-    if (p.seat === null) throw new UserError("Sit down before buying more chips.");
-    if (!isInt(amount) || amount <= 0) throw new UserError("Enter a whole number of chips.");
-    if (this.inLiveHand(p)) {
-      if (p.stack + p.rebuyQueued + amount > this.config.maxBuyIn) throw new UserError(`Your stack cannot exceed ${this.m(this.config.maxBuyIn)}.`);
-      p.rebuyQueued += amount;
-      this.addLog(`${p.name} will add ${this.m(amount)} after this hand`);
-    } else {
-      const total = p.stack + amount;
-      if (total > this.config.maxBuyIn) throw new UserError(`Your stack cannot exceed ${this.m(this.config.maxBuyIn)}.`);
-      this.credit(p, amount, "bought");
-    }
     this.changed();
   }
 
@@ -381,8 +530,9 @@ export class Table {
     const wasEmpty = p.stack <= 0;
     p.stack += amount;
     if (!this.isTourney()) p.buyIns += amount;
-    if (wasEmpty) {
+    if (wasEmpty && p.busted) {
       p.sittingOut = false;
+      p.busted = false;
       p.timeouts = 0;
     }
     this.addLog(`${p.name} ${verb} ${this.m(amount)} more${this.m(0) === "0" ? " chips" : ""}`);
@@ -398,6 +548,7 @@ export class Table {
     p.seat = null;
     p.stack = 0;
     p.sittingOut = false;
+    p.busted = false;
     p.timeouts = 0;
     this.clearQueued(p);
   }
@@ -405,7 +556,6 @@ export class Table {
   private clearQueued(p: Player): void {
     p.standQueued = false;
     p.kickQueued = false;
-    p.rebuyQueued = 0;
     p.adjustQueued = 0;
   }
 
@@ -523,7 +673,10 @@ export class Table {
         // tournament, and tournament chips are worthless afterwards (players rebuy for cash).
         for (const p of this.seated()) {
           if (next.mode === "tournament") p.cashOuts += p.stack;
-          else p.sittingOut = true;
+          else {
+            p.sittingOut = true;
+            p.busted = true;
+          }
           p.stack = 0;
         }
       }
@@ -549,9 +702,10 @@ export class Table {
     if (!isInt(c.maxSeats) || c.maxSeats < 2 || c.maxSeats > maxCap) throw new UserError(`Seats must be 2 to ${maxCap} for ${v.name}.`);
     const highest = this.seated().reduce((m, p) => Math.max(m, p.seat!), -1);
     if (c.maxSeats < highest + 1) throw new UserError(`Seat ${highest + 1} is occupied; have that player stand first.`);
-    if (!isInt(c.actionTimeoutSec) || !(c.actionTimeoutSec === 0 || (c.actionTimeoutSec >= 10 && c.actionTimeoutSec <= 120))) {
-      throw new UserError("The action timer must be 0 (off) or 10 to 120 seconds.");
+    if (!isInt(c.actionTimeoutSec) || !(c.actionTimeoutSec === 0 || (c.actionTimeoutSec >= 5 && c.actionTimeoutSec <= 300))) {
+      throw new UserError("The action timer must be 0 (off) or 5 to 300 seconds.");
     }
+    if (!isInt(c.extensionSec) || c.extensionSec < 0 || c.extensionSec > 120) throw new UserError("The time extension must be 0 (off) to 120 seconds.");
     if (!isInt(c.minBuyIn) || c.minBuyIn <= 0 || !isInt(c.maxBuyIn) || c.maxBuyIn <= 0) throw new UserError("Buy-ins must be positive whole numbers.");
     if (c.minBuyIn > c.maxBuyIn) throw new UserError("The minimum buy-in cannot exceed the maximum.");
     if (c.awardMode !== "auto" && c.awardMode !== "host") throw new UserError("Unknown award mode.");
@@ -616,6 +770,7 @@ export class Table {
     if (p.seat === null) throw new UserError(`${p.name} is not seated.`);
     if (typeof sittingOut !== "boolean") throw new UserError("Invalid request.");
     if (!sittingOut && p.stack <= 0) throw new UserError(`${p.name} needs chips before sitting back in.`);
+    p.busted = false;
     if (p.sittingOut !== sittingOut) this.addLog(`The dealer marked ${p.name} as ${sittingOut ? "sitting out" : "back in"}`);
     if (!sittingOut) p.timeouts = 0;
     p.sittingOut = sittingOut;
@@ -666,7 +821,10 @@ export class Table {
       t.stack -= take;
       if (!this.isTourney()) t.cashOuts += take;
       this.addLog(`The host removed ${this.m(take)}${this.m(0) === "0" ? " chips" : ""} from ${t.name}`);
-      if (t.stack === 0) t.sittingOut = true;
+      if (t.stack === 0 && !t.sittingOut) {
+        t.sittingOut = true;
+        t.busted = true;
+      }
     }
   }
 
@@ -782,10 +940,11 @@ export class Table {
     else this.armActionTimer();
   }
 
-  private armActionTimer(): void {
+  private armActionTimer(newTurn = true): void {
     this.clearActionTimer();
     const h = this.hand;
     if (!h) return;
+    if (newTurn) h.extended = false;
     const actor = h.state.toActSeat === null ? undefined : this.seatOwner(h.state.toActSeat);
     const sec = actor?.timerSec ?? this.config.actionTimeoutSec;
     if (h.state.outcome || h.state.toActSeat === null || sec <= 0) {
@@ -803,6 +962,26 @@ export class Table {
       this.actionTimer = null;
       this.onActionTimeout(true);
     }, ms);
+  }
+
+  private canExtendNow(p: Player): boolean {
+    const h = this.hand;
+    return !!h && !h.state.outcome && h.state.toActSeat !== null && p.seat === h.state.toActSeat
+      && h.actionDeadline !== null && !h.extended && this.config.extensionSec > 0;
+  }
+
+  /** The player to act adds extensionSec to their own clock, once per turn. */
+  extendTime(playerId: string): void {
+    const p = this.get(playerId);
+    const h = this.hand;
+    if (!h || h.state.outcome || h.state.toActSeat === null || p.seat !== h.state.toActSeat) throw new UserError("It is not your turn.");
+    if (h.actionDeadline === null || this.config.extensionSec <= 0) throw new UserError("There is no time limit to extend.");
+    if (h.extended) throw new UserError("You already used your extra time this turn.");
+    h.extended = true;
+    h.actionDeadline += this.config.extensionSec * 1000;
+    this.scheduleActionTimer(Math.max(0, h.actionDeadline - this.now()));
+    this.addLog(`${p.name} asks for ${this.config.extensionSec} more seconds`);
+    this.changed();
   }
 
   private onActionTimeout(counted: boolean): void {
@@ -878,7 +1057,7 @@ export class Table {
       ...extra,
     } as StartHandInput);
     this.hand = {
-      state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null,
+      state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null, extended: false,
       startStacks: new Map(el.map((p) => [p.id, p.stack])), awarded: null,
     };
     const btn = this.seatOwner(button);
@@ -918,6 +1097,8 @@ export class Table {
         this.addLog(`${nm} wins ${this.m(g.amount)}${g.name ? ` with ${g.name}${g.low ? " (low)" : ""}` : ""}`);
       }
     }
+    const names: Record<string, string> = {};
+    for (const id of h.participants) names[id] = this.players.get(id)?.name ?? "Someone";
     this.lastHand = {
       handNumber: h.state.handNumber,
       variant: h.state.variant,
@@ -935,7 +1116,12 @@ export class Table {
             return `button: ${(p && this.players.get(p.playerId)?.name) ?? `seat ${Number(seat) + 1}`}`;
           }),
       ),
+      shown: o.shown,
+      names,
+      endedAt: this.now(),
     };
+    this.history.push(this.lastHand);
+    if (this.history.length > HISTORY_CAP) this.history.splice(0, this.history.length - HISTORY_CAP);
     const foldEnd = o.winners.length > 0 && o.winners.every((w) => w.handName === null);
     this.nextDelay = foldEnd ? FOLD_DELAY : SHOWDOWN_DELAY;
     this.endedAt = this.now();
@@ -961,18 +1147,13 @@ export class Table {
     // Players who stay: queued rebuys and adjustments.
     for (const p of this.seated()) {
       if (p.kickQueued || p.standQueued) continue;
-      if (p.rebuyQueued > 0) {
-        const room = this.config.maxBuyIn - p.stack;
-        const amt = Math.min(p.rebuyQueued, room);
-        p.rebuyQueued = 0;
-        if (amt > 0) this.credit(p, amt, "bought");
-      }
       if (p.adjustQueued !== 0) {
         const d = p.adjustQueued;
         p.adjustQueued = 0;
         this.applyAdjust(p, d);
       }
       if (p.stack <= 0 && !this.isTourney()) {
+        if (!p.sittingOut) p.busted = true;
         p.sittingOut = true;
         this.addLog(`${p.name} is out of chips`);
       }
@@ -1007,11 +1188,15 @@ export class Table {
     to.stack += amount;
     this.addLog(`Dealer moves ${this.m(amount)} from ${from.name} to ${to.name}`);
     if (!this.isTourney()) {
-      if (wasEmpty) {
+      if (wasEmpty && to.busted) {
         to.sittingOut = false;
+        to.busted = false;
         to.timeouts = 0;
       }
-      if (from.stack === 0) from.sittingOut = true;
+      if (from.stack === 0 && !from.sittingOut) {
+        from.sittingOut = true;
+        from.busted = true;
+      }
     }
   }
 
@@ -1044,7 +1229,10 @@ export class Table {
     }
     this.addLog(`Dealer awards ${parts.join(", ")}`);
     h.awarded = winners;
-    if (this.lastHand) this.lastHand = { ...this.lastHand, winners };
+    if (this.lastHand) {
+      this.lastHand = { ...this.lastHand, winners };
+      this.history[this.history.length - 1] = this.lastHand;
+    }
     this.pendingAward = null;
     this.nextDelay = MIN_DELAY; // the dealer already paused the game; do not wait again
     this.completeHand();
@@ -1081,7 +1269,7 @@ export class Table {
     t.timerSec = seconds as number | null;
     this.addLog(`Dealer set ${t.name}'s timer to ${seconds === null ? "the table default" : seconds === 0 ? "no limit" : `${seconds}s`}`);
     const h = this.hand;
-    if (h && !h.state.outcome && h.state.toActSeat !== null && h.state.toActSeat === t.seat) this.armActionTimer();
+    if (h && !h.state.outcome && h.state.toActSeat !== null && h.state.toActSeat === t.seat) this.armActionTimer(false);
     this.changed();
   }
 
@@ -1425,8 +1613,10 @@ export class Table {
       hand,
       lastHand: this.lastHand,
       ledger,
-      log: [...this.log],
+      log: this.log.slice(-VIEW_LOG),
       pendingAward: this.pendingAward ? { ...this.pendingAward, candidatePlayerIds: [...this.pendingAward.candidatePlayerIds], suggested: this.pendingAward.suggested.map((x) => ({ ...x })) } : null,
+      handList: this.handList(),
+      canExtend: this.canExtendNow(me),
       tournament: this.tournamentView(),
     };
   }
