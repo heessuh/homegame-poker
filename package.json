@@ -1,0 +1,15 @@
+{
+  "name": "homegame-poker",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "npm run build -w @homegame/engine && npm run build -w @homegame/web && npm run build -w @homegame/server",
+    "dev:server": "npm run dev -w @homegame/server",
+    "dev:web": "npm run dev -w @homegame/web",
+    "test": "npm test -w @homegame/engine",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "start": "node apps/server/dist/index.js"
+  },
+  "engines": { "node": ">=22" }
+}
