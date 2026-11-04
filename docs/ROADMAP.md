@@ -9,14 +9,14 @@
 - [ ] First deploy to Fly.io
 
 ## Beta: playable game
-- [ ] Hand evaluator: high hands (Hold’em any-5-of-7; Omaha exactly 2 hole + 3 board)
-- [ ] Low evaluator: 8-or-better, Omaha 2+3 rule, split and quartered pots
-- [ ] Betting engine: no-limit and pot-limit, min-raise rules, all-in, side pots
+- [x] Hand evaluator: high hands (Hold’em any-5-of-7; Omaha exactly 2 hole + 3 board)
+- [x] Low evaluator: 8-or-better, Omaha 2+3 rule, split and quartered pots
+- [x] Betting engine: no-limit and pot-limit, min-raise rules, all-in, side pots
 - [ ] Hand flow: button, blinds, streets, showdown, muck
-- [ ] Host controls: blinds, stacks, seat/kick players, pause, change game between hands
-- [ ] Action timer, reconnect after a dropped connection
+- [x] Host controls: blinds, stacks, seat/kick players, pause, change game between hands
+- [x] Action timer, reconnect after a dropped connection
 - [ ] Chip ledger (buy-ins, cash-outs) and per-table hand history
-- [ ] Table UI for phones and desktops
+- [x] Table UI for phones and desktops
 
 ## After the beta
 - [ ] Persist tables and history (SQLite on a Fly volume, or Postgres)

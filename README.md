@@ -23,7 +23,15 @@ npm run dev:server   # http://localhost:3000
 npm run dev:web      # http://localhost:5173/#my-table
 ```
 
-Open the web URL in two browser windows, sit down with two names, and press **Deal test hand**.
+Open the web URL, create a table, and start the game. To test alone, run bots against your table from another terminal, using the table code shown in the table header:
+
+```bash
+node apps/server/test/bots.mjs <tableId> 2
+```
+
+The bots sit down and call or check every hand, so you can watch a full game.
+
+For players, see [`docs/PLAYING.md`](docs/PLAYING.md). For hosts, see [`docs/HOSTING.md`](docs/HOSTING.md).
 
 ## Test
 
