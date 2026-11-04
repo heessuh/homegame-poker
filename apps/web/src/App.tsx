@@ -41,7 +41,7 @@ export function App() {
   const showToast = useCallback((m: string) => {
     setToast(m);
     window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 4500);
+    toastTimer.current = window.setTimeout(() => setToast(null), m.length > 60 ? 12000 : 4500);
   }, []);
 
   let body: React.ReactNode;
@@ -216,6 +216,7 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
 
   return (
     <div className={`room ${open ? "panel-open" : ""}`}>
+      {view.siteNotice && <div className="site-notice" role="status">{view.siteNotice}</div>}
       <header className="top">
         <div className="title">
           <Wordmark /> <code>{view.tableId}</code>

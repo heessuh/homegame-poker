@@ -318,7 +318,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 /* modal, toast, mock */
 .modal-bg { position: fixed; inset: 0; background: rgba(8, 4, 2, .72); backdrop-filter: blur(4px); display: grid; place-items: center; z-index: 50; padding: 16px; animation: fadeIn .2s both; }
 .modal { background: linear-gradient(180deg, #342319, #241810); border: 1px solid var(--line2); border-radius: 20px; padding: 20px; width: 100%; max-width: 380px; box-shadow: 0 28px 70px rgba(0, 0, 0, .75), inset 0 1px 0 rgba(255, 255, 255, .07); animation: pop .28s var(--ease) both; }
-.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: linear-gradient(180deg, #4f2420, #3b1a18); color: #ffe0da; border: 1px solid #8c3a33; border-left: 4px solid var(--red); padding: 11px 18px; border-radius: 12px; z-index: 100; max-width: calc(100vw - 32px); box-shadow: 0 10px 30px rgba(0, 0, 0, .7); animation: toastIn .3s var(--ease) both; font-size: 14px; }
+.site-notice { background: #4f2420; color: #ffe0da; border-bottom: 2px solid var(--red); padding: 10px 16px; text-align: center; font-size: 14px; font-weight: 600; line-height: 1.4; }
+.toast { line-height: 1.4; position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: linear-gradient(180deg, #4f2420, #3b1a18); color: #ffe0da; border: 1px solid #8c3a33; border-left: 4px solid var(--red); padding: 11px 18px; border-radius: 12px; z-index: 100; max-width: calc(100vw - 32px); box-shadow: 0 10px 30px rgba(0, 0, 0, .7); animation: toastIn .3s var(--ease) both; font-size: 14px; }
 .mockpick { position: fixed; left: 8px; bottom: 8px; z-index: 60; max-width: 60vw; opacity: .9; }
 
 /* avatars */

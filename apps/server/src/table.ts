@@ -230,6 +230,8 @@ export class Table {
   private hostOfflineSince: number | null = null;
   private hostTimer: unknown = null;
   private pendingAward: PendingAward | null = null;
+  /** Site budget guard: while set, no new hand starts (the current hand and any dealer award still finish). */
+  private budgetNotice: string | null = null;
   private transfers: Transfer[] = [];
   private t: TourneyState | null = null;
   private levelTimer: unknown = null;
@@ -610,8 +612,17 @@ export class Table {
     this.hostTimer = null;
   }
 
+  /** Budget guard on/off. A notice holds the table (no new hands); null lifts it and play resumes as before. */
+  setBudgetNotice(notice: string | null): void {
+    if (notice === this.budgetNotice) return;
+    this.budgetNotice = notice;
+    if (notice !== null) this.clearStartTimer();
+    this.changed();
+  }
+
   hostStart(playerId: string): void {
     this.requireHost(playerId);
+    if (this.budgetNotice !== null) throw new UserError(this.budgetNotice);
     if (this.status === "playing") throw new UserError("The game is already running.");
     if (this.isTourney() && this.tourney().status !== "running") {
       if (this.seated().length < 2) throw new UserError("At least 2 players must be seated to start a tournament.");
@@ -634,6 +645,7 @@ export class Table {
       this.clearStartTimer();
       this.addLog("The host paused the game (the current hand will finish)");
     } else {
+      if (this.budgetNotice !== null) throw new UserError(this.budgetNotice);
       if (this.status !== "paused") throw new UserError("The game is not paused.");
       this.status = "playing";
       this.addLog("The host resumed the game");
@@ -1017,6 +1029,7 @@ export class Table {
   }
 
   private maybeSchedule(): void {
+    if (this.budgetNotice !== null) return;
     if (this.status !== "playing" || this.handOpen() || this.startTimer !== null) return;
     if (this.isTourney() && this.t?.status !== "running") return;
     if (this.eligible().length < 2) return;
@@ -1029,6 +1042,7 @@ export class Table {
   }
 
   private beginHand(): void {
+    if (this.budgetNotice !== null) return;
     if (this.status !== "playing" || this.handOpen()) return;
     if (this.isTourney() && this.t?.status !== "running") return;
     const el = this.eligible();
@@ -1608,7 +1622,7 @@ export class Table {
       you: { playerId: me.id, seat: me.seat, isHost: this.hostId === me.id },
       config: cloneConfig(this.config),
       pendingConfig: this.pendingConfig ? cloneConfig(this.pendingConfig) : null,
-      status: this.status,
+      status: this.budgetNotice !== null && this.status === "playing" ? "paused" : this.status,
       seats,
       hand,
       lastHand: this.lastHand,
@@ -1618,6 +1632,7 @@ export class Table {
       handList: this.handList(),
       canExtend: this.canExtendNow(me),
       tournament: this.tournamentView(),
+      siteNotice: this.budgetNotice,
     };
   }
 }

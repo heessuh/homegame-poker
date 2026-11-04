@@ -1,6 +1,7 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket as NetSocket } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -15,6 +16,7 @@ import {
   type HandRecord,
 } from "@homegame/engine";
 import { IDLE_DELETE_MS, Store, type FsLike } from "./persist.js";
+import { loadUsageConfig, UsageMeter, type UsageConfig } from "./usage.js";
 import { realScheduler, Table, UserError, type Scheduler, type TableSnapshot } from "./table.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -37,9 +39,13 @@ export interface ServerOptions {
   /** Where snapshots and house defaults live. Default: $DATA_DIR or ./data. null turns persistence off. */
   dataDir?: string | null;
   fs?: FsLike;
+  /** Budget limits and cost rates. Default: read from the environment (BUDGET_LIMIT_USD etc.). */
+  budget?: Partial<UsageConfig>;
+  /** Token for /admin/usage. Default: $USAGE_TOKEN (the endpoints answer 404 when it is unset). */
+  usageToken?: string;
 }
 
-export async function startServer(port: number, opts: ServerOptions = {}): Promise<{ close: () => Promise<void>; port: number }> {
+export async function startServer(port: number, opts: ServerOptions = {}): Promise<{ close: () => Promise<void>; port: number; usage: UsageMeter }> {
   const now = opts.now ?? Date.now;
   const scheduler = opts.scheduler ?? realScheduler;
   const deckSource = opts.deckSource ?? (() => shuffle());
@@ -47,7 +53,44 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
   const store = dataDir === null ? null : new Store({ dir: dataDir, scheduler, now, fs: opts.fs });
   let houseDefaults: Partial<TableConfig> | undefined = store ? await store.loadDefaults() : undefined;
 
+  const meter = new UsageMeter({
+    dir: dataDir, now, scheduler, fs: opts.fs,
+    config: { ...loadUsageConfig(), ...opts.budget },
+  });
+  await meter.start();
+  let budgetNote: string | null = meter.notice();
+
   const app = express();
+  const tokenOk = (given: unknown): boolean => {
+    const want = opts.usageToken ?? process.env.USAGE_TOKEN;
+    if (!want || typeof given !== "string") return false;
+    const h = (v: string) => createHash("sha256").update(v).digest();
+    return timingSafeEqual(h(given), h(want));
+  };
+  /** 404 when no token is configured, 401 on a wrong one. */
+  const adminAuth = (req: express.Request, res: express.Response): boolean => {
+    if (!(opts.usageToken ?? process.env.USAGE_TOKEN)) {
+      res.status(404).json({ error: "Not found" });
+      return false;
+    }
+    if (!tokenOk(req.query.token)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return false;
+    }
+    return true;
+  };
+  app.get("/admin/usage", (req, res) => {
+    if (adminAuth(req, res)) res.json(meter.snapshot());
+  });
+  app.post("/admin/usage/notified", (req, res) => {
+    if (!adminAuth(req, res)) return;
+    const level = req.query.level;
+    if (level !== "warn" && level !== "limit") {
+      res.status(400).json({ error: "level must be warn or limit" });
+      return;
+    }
+    meter.markNotified(level).then((notified) => res.json({ ok: true, notified }), () => res.status(500).json({ error: "save failed" }));
+  });
   app.get("/healthz", (_req, res) => res.json({ ok: true }));
   if (existsSync(webDist)) {
     app.use(express.static(webDist));
@@ -55,6 +98,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
   }
 
   const http = createServer(app);
+  http.on("connection", (s: NetSocket) => meter.track(s));
   const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(http, {
     cors: { origin: process.env.CORS_ORIGIN ?? "http://localhost:5173" },
   });
@@ -95,6 +139,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
     });
     tables.set(tableId, t);
     sockets.set(tableId, new Map());
+    if (budgetNote) t.setBudgetNotice(budgetNote);
     return t;
   }
 
@@ -115,6 +160,12 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
     }
     if (tables.size > 0) console.log(`Restored ${tables.size} table(s) from ${dataDir}`);
   }
+
+  meter.onChange((_status, notice) => {
+    budgetNote = notice;
+    if (notice) console.warn(`Budget limit reached: ${notice}`);
+    for (const t of tables.values()) t.setBudgetNotice(notice);
+  });
 
   const gc = setInterval(() => {
     const limit = store ? IDLE_DELETE_MS : IDLE_MEMORY_MS;
@@ -167,6 +218,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       if (typeof p.playerToken !== "string") throw new UserError("Missing player token.");
       const tableId = p.tableId.toLowerCase();
       const existed = tables.has(tableId);
+      if (!existed && budgetNote) throw new UserError(budgetNote);
       const table = getOrCreateTable(tableId);
       let playerId: string;
       try {
@@ -372,11 +424,13 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       const actual = (http.address() as AddressInfo).port;
       resolvePromise({
         port: actual,
+        usage: meter,
         close: async () => {
           clearInterval(gc);
           if (store) await store.flush(); // before dispose: timers are cleared, state stays
           for (const t of tables.values()) t.dispose();
           await new Promise<void>((res) => void io.close(() => res()));
+          await meter.stop(); // after sockets close, so their last bytes are counted
         },
       });
     });

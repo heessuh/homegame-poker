@@ -295,6 +295,8 @@ export interface TableView {
   /** True when the viewer is to act, has a running timer, and hasn't used this turn's extension. */
   canExtend: boolean;
   tournament: TournamentView | null; // null in cash mode
+  /** Site-wide message (e.g. the monthly budget has been reached); null normally. */
+  siteNotice: string | null;
 }
 
 // ---- Socket.IO events ----
