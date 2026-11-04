@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_HOUSE_LIMIT, DEFAULT_STUD, VARIANTS } from "@homegame/engine";
+import { DEFAULT_HOUSE_LIMIT, DEFAULT_STUD, VARIANTS, VERIFIER_URL } from "@homegame/engine";
 import type { HouseLimit, SeatView, StudStakes, TableConfig, TableView, VariantId } from "@homegame/engine";
 import { CardRow } from "./CardView";
 import type { Send } from "./App";
 import { fmt, fmtWith, isStud, sha256Hex, shortGame } from "./util";
 import type { Card, HandRecord } from "@homegame/engine";
 import { MoneyInput, Who, avatarOf } from "./ui";
-import { verifyFairness, type FairCheck } from "./fairness";
+import { fairnessExport, verifyFairness, type FairCheck } from "./fairness";
 import { RngAudit } from "./RngAudit";
 import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
@@ -107,6 +107,22 @@ function History({ view, send }: { view: TableView; send: Send }) {
     setRec(undefined);
     send("getHand", { handNumber: n }, (r) => setRec(r));
   };
+  const [busy, setBusy] = useState(false);
+  // Session download: every hand's fairness data in the format the standalone verifier accepts.
+  const downloadAll = async () => {
+    setBusy(true);
+    const recs = await Promise.all(view.handList.map((h) => new Promise<HandRecord | null>((res) => send("getHand", { handNumber: h.handNumber }, res))));
+    const data = fairnessExport(recs.filter((r): r is HandRecord => !!r), view.tableId, view.you.playerId);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mochapoker-fairness-${view.tableId}-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setBusy(false);
+  };
   if (sel !== null) {
     return (
       <div>
@@ -119,6 +135,11 @@ function History({ view, send }: { view: TableView; send: Send }) {
   }
   if (view.handList.length === 0) return <p className="muted">No finished hands yet.</p>;
   return (
+    <>
+    <div className="btn-row wrap logbtns">
+      <button className="btn small" disabled={busy} onClick={downloadAll}>{busy ? "Collecting…" : "Download all hands (fairness data)"}</button>
+      <a className="btn small" href={VERIFIER_URL} target="_blank" rel="noreferrer">Check it yourself</a>
+    </div>
     <ul className="hlist">
       {view.handList.map((h) => (
         <li key={h.handNumber}>
@@ -132,13 +153,20 @@ function History({ view, send }: { view: TableView; send: Send }) {
         </li>
       ))}
     </ul>
+    </>
   );
 }
 
 function HandDetail({ h, view }: { h: HandRecord; view: TableView }) {
   const [result, setResult] = useState<null | { ok: boolean; computed?: string; error?: string }>(null);
   const [fair, setFair] = useState<FairCheck[] | null>(null);
-  useEffect(() => { setResult(null); setFair(null); }, [h.handNumber]);
+  const [copied, setCopied] = useState<string | null>(null);
+  useEffect(() => { setResult(null); setFair(null); setCopied(null); }, [h.handNumber]);
+  const copyFair = async () => {
+    const text = JSON.stringify(fairnessExport([h], view.tableId, view.you.playerId), null, 2);
+    try { await navigator.clipboard.writeText(text); setCopied("Copied. Paste it into the verifier."); }
+    catch { setCopied("Could not copy; use “Download all hands” in History instead."); }
+  };
   const verifyFair = async () => setFair(await verifyFairness(h, view.tableId, view.you.playerId));
   const verify = async () => {
     try {
@@ -196,7 +224,12 @@ function HandDetail({ h, view }: { h: HandRecord; view: TableView }) {
           {Object.entries(h.fair.clientSeeds).map(([id, sd]) => <div key={id} className="kv"><span>{name(id)}</span><code>{sd}</code></div>)}
         </>
       )}
-      <button className="btn small" onClick={verifyFair}>Verify fairness</button>
+      <div className="btn-row wrap">
+        <button className="btn small" onClick={verifyFair}>Verify fairness</button>
+        {h.fair && <button className="btn small" onClick={copyFair}>Copy fairness data</button>}
+        {h.fair && <a className="btn small" href={VERIFIER_URL} target="_blank" rel="noreferrer">Check it yourself</a>}
+      </div>
+      {copied && <p className="muted small" role="status">{copied}</p>}
       {fair && (
         <ul className="fairchecks">
           {fair.map((c, i) => (

@@ -14,6 +14,7 @@ import { AwardPanel } from "./Award";
 import { TournamentHud } from "./Tournament";
 import { Avatar, AvatarPicker, Modal, MoneyInput, Wordmark, loadAvatar, saveAvatar } from "./ui";
 import { newClientSeed, rememberSeed } from "./fairness";
+import { FairWatch } from "./FairBanner";
 import { fmt, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
@@ -142,7 +143,7 @@ function LiveRoom({ tableId, name, avatar, onAvatar, showToast }: { tableId: str
   }, [fair?.nextHandNumber, fair?.serverSeedHash, send, tableId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!view) return <main className="landing"><p className="muted">{connected ? "Joining table…" : "Connecting…"}</p></main>;
-  return <Room view={view} send={send} connected={connected} avatar={avatar} onAvatar={onAvatar} />;
+  return <><FairWatch view={view} /><Room view={view} send={send} connected={connected} avatar={avatar} onAvatar={onAvatar} /></>;
 }
 
 function MockRoom({ showToast, avatar, onAvatar }: { showToast: (m: string) => void; avatar: string | null; onAvatar: (a: string | null) => void }) {

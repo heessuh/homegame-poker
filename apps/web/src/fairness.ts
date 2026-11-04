@@ -1,5 +1,6 @@
 // Client side of the "mochapoker-v1" provably fair shuffle (docs/FAIRNESS.md).
-import { buildMaterial, bytesToHex } from "@homegame/engine";
+import { buildFairExport, buildMaterial, bytesToHex } from "@homegame/engine";
+import type { FairExport } from "@homegame/engine";
 import type { HandRecord } from "@homegame/engine";
 import { deriveDeck, seedHash } from "../../../packages/engine/dist/fairshuffle-web.js";
 import { sha256Hex, storeGet, storeSet } from "./util";
@@ -23,15 +24,23 @@ function load(): StoredSeed[] {
   }
 }
 
-/** Remember the commitment we saw and the seed we answered with (last 300). */
+/**
+ * Remember the commitment we saw and the seed we answered with (last 300). Called BEFORE the seed is sent, so
+ * the stored commitment always predates the deal. If the server ever shows a different commitment for the same
+ * hand, both are kept (the earliest one is what gets checked), so a switch cannot erase the evidence.
+ */
 export function rememberSeed(e: StoredSeed): void {
-  const all = load().filter((x) => !(x.tableId === e.tableId && x.handNumber === e.handNumber));
+  const all = load().filter((x) => !(x.tableId === e.tableId && x.handNumber === e.handNumber && x.serverSeedHash === e.serverSeedHash));
   all.push(e);
   storeSet(KEY, JSON.stringify(all.slice(-KEEP)));
 }
 
 export function storedSeed(tableId: string, handNumber: number): StoredSeed | null {
   return load().find((x) => x.tableId === tableId && x.handNumber === handNumber) ?? null;
+}
+
+function storedSeeds(tableId: string, handNumber: number): StoredSeed[] {
+  return load().filter((x) => x.tableId === tableId && x.handNumber === handNumber);
 }
 
 /** 16 random bytes as 32 lowercase hex characters. */
@@ -45,6 +54,8 @@ export interface FairCheck {
   ok: boolean | null; // null = not applicable
   label: string;
   detail: string;
+  /** A failure that can also be a harmless race (e.g. our seed arrived just after the deal): warn, don't alarm. */
+  soft?: boolean;
 }
 
 /** Runs the four fairness checks for a finished hand. `myId` is the viewer's player id. */
@@ -75,11 +86,11 @@ export async function verifyFairness(rec: HandRecord, tableId: string, myId: str
         out.push({ ok: null, label: "Your seed is included", detail: "You weren't dealt into this hand, so there is no seed of yours to check." });
       } else if (mine === undefined) {
         out.push({
-          ok: seen ? false : null, label: "Your seed is included",
+          ok: seen ? false : null, label: "Your seed is included", soft: true,
           detail: seen ? "You sent a seed but it is not in the revealed seeds (it may have arrived after the deal)." : "You didn't send a seed for this hand; the others' seeds were used.",
         });
       } else {
-        const ok = !seen || seen.clientSeed === mine;
+        const ok = !seen || storedSeeds(tableId, rec.handNumber).some((x) => x.clientSeed === mine);
         out.push({
           ok, label: "Your seed is included",
           detail: ok ? "The seed your browser generated is among the seeds used for the shuffle." : "The seed the server used for you differs from the one your browser sent.",
@@ -104,4 +115,25 @@ export async function verifyFairness(rec: HandRecord, tableId: string, myId: str
     out.push({ ok: false, label: "Deck fingerprint", detail: `Could not verify: ${e instanceof Error ? e.message : String(e)}` });
   }
   return out;
+}
+
+export interface AutoCheck {
+  handNumber: number;
+  /** ok = everything passed; warn = only a soft check failed; fail = a hard check failed; skip = nothing to verify. */
+  level: "ok" | "warn" | "fail" | "skip";
+  checks: FairCheck[];
+}
+
+/** Background check of a finished hand the viewer was dealt into. Hands without fair data are skipped. */
+export async function autoCheck(rec: HandRecord, tableId: string, myId: string): Promise<AutoCheck> {
+  if (!rec.fair || !(myId in (rec.names ?? {}))) return { handNumber: rec.handNumber, level: "skip", checks: [] };
+  const checks = await verifyFairness(rec, tableId, myId);
+  const failed = checks.filter((c) => c.ok === false);
+  const level = failed.some((c) => !c.soft) ? "fail" : failed.length ? "warn" : "ok";
+  return { handNumber: rec.handNumber, level, checks };
+}
+
+/** The JSON the standalone verifier accepts, including what this browser saw before each deal. */
+export function fairnessExport(recs: readonly HandRecord[], tableId: string, myId: string): FairExport {
+  return buildFairExport(tableId, recs, { playerId: myId, seen: (n) => storedSeed(tableId, n) });
 }
