@@ -294,6 +294,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .btn-row .btn { flex: 1; }
 .actionbar .btn-row .btn { min-height: 50px; font-size: 16px; border-radius: 14px; padding: 8px 6px; line-height: 1.15; }
 .actionbar .btn-row .btn.call, .actionbar .btn-row .btn.raise { flex: 1.4; }
+.card.cancelled { opacity: .38; filter: grayscale(.85); }
+.tag.pts { background: rgba(227, 183, 101, .18); border-color: var(--gold); color: var(--gold2); }
 .blindchoice { max-width: 560px; margin: 8px auto 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: center; text-align: center; font-size: 13px; }
 .controls { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
 /* Stand up, Sit out and Avatar use the action bar's space when it isn't your turn. */

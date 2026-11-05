@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../../..");
-const { VARIANTS, bestLowAny, deriveDeck, seedHash, buildMaterial } = await import(pathToFileURL(join(root, "packages/engine/dist/index.js")).href);
+const { VARIANTS, bestHigh, bestLowAny, tkoPoints, deriveDeck, seedHash, buildMaterial } = await import(pathToFileURL(join(root, "packages/engine/dist/index.js")).href);
 
 // ------------------------------------------------------------------ args
 const argv = process.argv.slice(2);
@@ -303,6 +303,77 @@ function lowHook(g, variant, hv, rec, stats) {
     }
   });
 }
+// SMD: each half is won by the best high (or best low) hand that uses two or three hole cards.
+function smdHook(g, variant, hv, rec, stats) {
+  if (Object.keys(rec.shown).length < 2) return;
+  stats.showdowns++;
+  hv.pots.forEach((pot, pi) => {
+    const el = pot.eligiblePlayerIds.filter((id) => rec.shown[id]);
+    if (el.length === 0) return;
+    const highs = new Map(el.map((id) => [id, bestHigh(rec.shown[id], rec.board, "2or3")]));
+    const lows = new Map(el.map((id) => [id, bestLowAny(rec.shown[id], rec.board, "2or3")]));
+    const bestHi = Math.max(...[...highs.values()].map((h) => h.score));
+    const bestLo = Math.min(...[...lows.values()].map((l) => l.score));
+    const hiGroup = el.filter((id) => highs.get(id).score === bestHi).sort();
+    const loGroup = el.filter((id) => lows.get(id).score === bestLo).sort();
+    const winners = hv.winners.filter((w) => w.potIndex === pi);
+    const ids = (half) => winners.filter((w) => w.half === half).map((w) => w.playerId).sort();
+    const total = sum(winners.map((w) => w.amount));
+    g.ok(winners.every((w) => w.half === "high" || w.half === "low"), `${variant} hand ${rec.handNumber}: SMD pot ${pi + 1} paid a "${winners.find((w) => w.half !== "high" && w.half !== "low")?.half}" half`);
+    if (pot.amount >= 2) {
+      g.ok(JSON.stringify(ids("high")) === JSON.stringify(hiGroup), `${variant} hand ${rec.handNumber}: high winners ${ids("high")} != expected ${hiGroup}`);
+      g.ok(JSON.stringify(ids("low")) === JSON.stringify(loGroup), `${variant} hand ${rec.handNumber}: low winners ${ids("low")} != expected ${loGroup}`);
+      g.ok(sum(winners.filter((w) => w.half === "high").map((w) => w.amount)) === Math.ceil(pot.amount / 2), `${variant} hand ${rec.handNumber}: high half should be ceil(${pot.amount}/2)`);
+    }
+    for (const w of winners) {
+      const expected = (w.half === "high" ? highs : lows).get(w.playerId);
+      g.ok(!!expected && w.handName === expected.name, `${variant} hand ${rec.handNumber}: handName "${w.handName}" != computed "${expected?.name}"`);
+    }
+    g.ok(total === pot.amount, `${variant} hand ${rec.handNumber}: pot ${pi + 1} paid ${total} of ${pot.amount}`);
+    stats.smdChecked++;
+  });
+}
+
+// TKO: points decide each half. Nobody left in the pot wins the pot; a player with both the most and the fewest
+// points (or several players sharing both) takes the whole pot as one entry.
+function tkoHook(g, variant, hv, rec, stats) {
+  if (Object.keys(rec.shown).length < 2) return;
+  stats.showdowns++;
+  hv.pots.forEach((pot, pi) => {
+    const el = pot.eligiblePlayerIds.filter((id) => rec.shown[id]);
+    if (el.length === 0) return;
+    const pts = new Map(el.map((id) => [id, tkoPoints(rec.shown[id], rec.board)]));
+    const winners = hv.winners.filter((w) => w.potIndex === pi);
+    const ids = (half) => winners.filter((w) => w.half === half).map((w) => w.playerId).sort();
+    const total = sum(winners.map((w) => w.amount));
+    g.ok(total === pot.amount, `${variant} hand ${rec.handNumber}: TKO pot ${pi + 1} paid ${total} of ${pot.amount}`);
+    const empty = el.filter((id) => pts.get(id).remaining.length === 0).sort();
+    if (empty.length > 0) {
+      g.ok(JSON.stringify(winners.map((w) => w.playerId).sort()) === JSON.stringify(empty), `${variant} hand ${rec.handNumber}: no-cards-left winners ${winners.map((w) => w.playerId)} != ${empty}`);
+      g.ok(winners.every((w) => w.half === "whole"), `${variant} hand ${rec.handNumber}: no-cards-left pot should pay "whole"`);
+      stats.tkoEmpty++;
+      return;
+    }
+    const most = Math.max(...el.map((id) => pts.get(id).high));
+    const fewest = Math.min(...el.map((id) => pts.get(id).low));
+    const hiGroup = el.filter((id) => pts.get(id).high === most).sort();
+    const loGroup = el.filter((id) => pts.get(id).low === fewest).sort();
+    const same = JSON.stringify(hiGroup) === JSON.stringify(loGroup);
+    if (same) {
+      g.ok(JSON.stringify(winners.map((w) => w.playerId).sort()) === JSON.stringify(hiGroup), `${variant} hand ${rec.handNumber}: whole-pot winners ${winners.map((w) => w.playerId)} != ${hiGroup}`);
+      g.ok(winners.every((w) => w.half === "whole"), `${variant} hand ${rec.handNumber}: a player with both the most and fewest points should get a "whole" entry`);
+      stats.tkoWhole++;
+    } else {
+      g.ok(JSON.stringify(ids("high")) === JSON.stringify(hiGroup), `${variant} hand ${rec.handNumber}: most-points winners ${ids("high")} != expected ${hiGroup}`);
+      if (pot.amount >= 2) {
+        g.ok(JSON.stringify(ids("low")) === JSON.stringify(loGroup), `${variant} hand ${rec.handNumber}: fewest-points winners ${ids("low")} != expected ${loGroup}`);
+        g.ok(sum(winners.filter((w) => w.half === "high").map((w) => w.amount)) === Math.ceil(pot.amount / 2), `${variant} hand ${rec.handNumber}: high half should be ceil(${pot.amount}/2)`);
+      }
+      stats.tkoSplit++;
+    }
+  });
+}
+
 function hiloHook(g, hv, rec, stats) {
   if (Object.keys(rec.shown).length < 2) return;
   const pots = new Map();
@@ -325,7 +396,7 @@ async function playGame(g, ctx, variant, n, hands, policy = POLICY) {
   const H = T.host;
   const v0 = VARIANTS[variant];
   const stud = v0.kind === "stud";
-  const stats = { showdowns: 0, fystSecond: 0, fyst3: 0, hilo: 0, reshuffles: 0, foldEnds: 0, rebuys: 0 };
+  const stats = { showdowns: 0, fystSecond: 0, fyst3: 0, hilo: 0, reshuffles: 0, foldEnds: 0, rebuys: 0, smdChecked: 0, tkoEmpty: 0, tkoWhole: 0, tkoSplit: 0 };
   const wantMore = () => (variant === "fyst" ? stats.fyst3 < 2 : variant === "nlhe-hilo" ? stats.hilo < 2 : variant === "plo4-lo" ? stats.showdowns < 2 : false);
   H.s.emit("host:start");
   let i = 0;
@@ -365,6 +436,8 @@ async function playGame(g, ctx, variant, n, hands, policy = POLICY) {
     if (rec.summary.some((l) => /Discards reshuffled/.test(l))) stats.reshuffles++;
     if (variant === "plo4-lo" || variant === "fyst") lowHook(g, variant, hv, rec, stats);
     if (variant === "nlhe-hilo") hiloHook(g, hv, rec, stats);
+    if (variant.startsWith("smd")) smdHook(g, variant, hv, rec, stats);
+    if (variant.startsWith("tko")) tkoHook(g, variant, hv, rec, stats);
     // award exactly what the engine suggests (the normal "Next hand" path)
     const before = new Map(v.seats.filter(Boolean).map((s) => [s.playerId, s.stack]));
     if (last) H.s.emit("host:pause", { paused: true });
@@ -395,6 +468,8 @@ async function playGame(g, ctx, variant, n, hands, policy = POLICY) {
   if (variant === "fyst") g.note(`${stats.showdowns} showdowns, ${stats.fyst3} with a 3+ player second-best-low check`);
   if (variant === "nlhe-hilo") g.note(`${stats.hilo} hi/lo split pots verified`);
   if (variant === "plo4-lo") g.note(`${stats.showdowns} low showdowns verified`);
+  if (variant.startsWith("smd")) g.note(`${stats.showdowns} showdowns verified (2or3 high and low)`);
+  if (variant.startsWith("tko")) g.note(`${stats.showdowns} showdowns: ${stats.tkoSplit} split, ${stats.tkoWhole} whole-pot, ${stats.tkoEmpty} no-cards-left`);
   g.note(`${n} players, ${played} hands, ${stats.foldEnds} won by fold-out, ${stats.rebuys} dealer re-buys after busts`);
 }
 
@@ -797,10 +872,11 @@ async function main() {
   const games = [
     ["nlhe", 6], ["nlhe-hilo", 3], ["plo4", 4], ["plo5", 5], ["plo4-8", 2],
     ["plo5-8", 6], ["plo4-lo8", 3], ["plo4-lo", 4], ["fyst", 5], ["murder5", 8],
+    ["smd4", 4], ["smd5", 5], ["tko4", 6], ["tko5", 4],
   ];
   const showdownish = { fold: 0.04, raise: 0.2, swap: 0.65 };
   for (const [variant, n] of games) {
-    const policy = variant === "fyst" || variant === "plo4-lo" || variant === "nlhe-hilo" ? showdownish : variant === "murder5" ? { fold: 0.03, raise: 0.2, swap: 1 } : POLICY;
+    const policy = variant === "fyst" || variant === "plo4-lo" || variant === "nlhe-hilo" || variant.startsWith("smd") || variant.startsWith("tko") ? showdownish : variant === "murder5" ? { fold: 0.03, raise: 0.2, swap: 1 } : POLICY;
     jobs.push([`game ${variant} (${n} players, ${HANDS} hands)`, (g) => playGame(g, ctx, variant, n, HANDS, policy)]);
   }
   jobs.push(["rules: house limit, Hold'em 3-handed", (g) => scenHouseBoard(g, ctx, "nlhe", 3, "nlhe 3p")]);

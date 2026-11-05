@@ -90,6 +90,19 @@ describe("luck: reconstructing the deal", () => {
     [swapped[0], swapped[1]] = [swapped[1]!, swapped[0]!];
     expect(reconstructDeal({ ...rec, reveal: { deck: swapped } })).toBe("bad"); // contradicts the cards shown or the board
   });
+
+  it("skips TKO records as stud; SMD records rebuild and score", () => {
+    const r = rng(21);
+    const { rec: tko } = playHand("tko4", IDS.slice(0, 4), 1, shuffled(r), r);
+    expect(reconstructDeal(tko)).toBe("stud");
+    const { rec: smd } = playHand("smd4", IDS.slice(0, 4), 2, shuffled(r), r);
+    const d = reconstructDeal(smd);
+    expect(typeof d).toBe("object");
+    if (typeof d === "string") return;
+    expect(d.board).toHaveLength(5);
+    const credit = bestHandCredits("smd4", d.holes, d.board);
+    expect(credit.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+  });
 });
 
 // ------------------------------------------------------------- best hand
@@ -144,6 +157,13 @@ describe("luck: who was dealt the best hand", () => {
   it("splits the credit on a tie", () => {
     expect(credits("nlhe", ["2h 3d", "4h 5d", "6c 7d"], "Ah Kd Qh Jc Ts")).toEqual([1 / 3, 1 / 3, 1 / 3]);
     expect(credits("nlhe", ["Ah 3d", "Ad 5d", "6c 7d"], "Ks Kd Qh Jc Ts")).toEqual([0.5, 0.5, 0]);
+  });
+
+  it("SMD scores with the 2or3 rule without throwing", () => {
+    const holes = [cards("As 2c 3d Kh"), cards("Th 8c 6d 7s")];
+    expect(() => bestHandCredits("smd4", holes, cards("4h 5s Qd Jc 9c"))).not.toThrow();
+    // The queen-high straight takes the high half (SMD is a hi/lo split, so the high winner gets the credit).
+    expect(bestHandCredits("smd4", holes, cards("4h 5s Qd Jc 9c"))).toEqual([0, 1]);
   });
 
   it("uses the Omaha two-hole-card rule", () => {

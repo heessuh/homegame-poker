@@ -1,6 +1,6 @@
 # Playing
 
-Our own betting limits and game rules (5-Murder, FYST, the Hi/Lo games) are in [House Rules](HOUSE_RULES.md).
+Our own betting limits and game rules (5-Murder, FYST, SMD, TKO, the Hi/Lo games) are in [House Rules](HOUSE_RULES.md).
 
 A quick guide for friends at the table. You don’t need an account or an app: just a link.
 
@@ -71,6 +71,8 @@ By default the dealer awards every pot. At showdown, everyone sees the winnings 
 - **5-Card Pot-Limit Omaha Hi/Lo (8 or better)**, up to 8 players.
 - **Pot-Limit Omaha Low**, 8 or better or with no qualifier, up to 10 players.
 - **FYST**, an Omaha game where the second-best low wins, up to 10 players.
+- **SMD**, 4-card (up to 10 players) or 5-card (up to 8): Omaha Hi/Lo with no low qualifier, and you can use 2 or 3 of your own cards for each hand.
+- **TKO**, 4-card (up to 10 players) or 5-card (up to 8): no poker hands, just points. Board cards that match a card in your hand knock that card out. The most and fewest points split the pot.
 - **5-Murder**, up to 8 players.
 
 The host picks the game and the stakes.

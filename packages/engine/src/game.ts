@@ -1,6 +1,7 @@
 // Poker hand state machine. Pure functions over a JSON-serializable HandState.
 import type { Card } from "./cards.js";
-import { VARIANTS, splitOf, type VariantId } from "./variants.js";
+import { VARIANTS, holeRule, splitOf, type VariantId } from "./variants.js";
+import { tkoPoints, tkoSummary, type PointsResult } from "./points.js";
 import type { Declaration, FoldStreet, HouseLimit, RunoutSnapshot, LegalActions, Phase, PlayerAction, PotView, StudStakes, WinnerView } from "./protocol.js";
 import { bestHigh, bestLow8, bestLowAny, type HighResult, type LowResult } from "./evaluate.js";
 import { houseLimitSizing, requiredIncrement, validateSpreadRules } from "./limits.js";
@@ -565,6 +566,7 @@ export function finishFoldOut(s: HandState, winner: HandPlayer): void {
 }
 
 function resolveShowdown(s: HandState): void {
+  if (VARIANTS[s.variant].scoring === "points") return resolvePointsShowdown(s);
   returnUncalled(s);
   const v = VARIANTS[s.variant];
   const live = s.players.filter((p) => !p.folded);
@@ -573,9 +575,9 @@ function resolveShowdown(s: HandState): void {
   const lows = new Map<string, LowResult | null>();
   for (const p of live) {
     shown[p.playerId] = [...p.holeCards];
-    highs.set(p.playerId, bestHigh(p.holeCards, s.board, v.mustUseTwoHole));
+    highs.set(p.playerId, bestHigh(p.holeCards, s.board, holeRule(v)));
     const lowFn = v.lowRule === "any" ? bestLowAny : bestLow8;
-    lows.set(p.playerId, splitOf(v) !== "high" ? lowFn(p.holeCards, s.board, v.mustUseTwoHole) : null);
+    lows.set(p.playerId, splitOf(v) !== "high" ? lowFn(p.holeCards, s.board, holeRule(v)) : null);
     s.log.push(`${name(p)} shows ${fmtCards(p.holeCards)}: ${(highs.get(p.playerId) as HighResult).name}`);
   }
 
@@ -636,6 +638,64 @@ function resolveShowdown(s: HandState): void {
       for (const [id, amt] of distribute(lowAmount, lowWinners, order)) {
         if (amt > 0) winners.push({ playerId: id, amount: amt, potIndex, half: "low", handName: (lows.get(id) as LowResult).name });
       }
+    }
+  });
+
+  complete(s, winners, shown);
+}
+
+/**
+ * TKO showdown. Each player scores the points left in their hand once the cards matching the board are out.
+ * A player with nothing left wins the pot outright (several such players split it). Otherwise the most points
+ * (aces as 11) and the fewest points (aces as 1) each take half; ties split that half; the odd chip goes high.
+ */
+function resolvePointsShowdown(s: HandState): void {
+  returnUncalled(s);
+  const live = s.players.filter((p) => !p.folded);
+  const shown: Record<string, Card[]> = {};
+  const pts = new Map<string, PointsResult>();
+  for (const p of live) {
+    shown[p.playerId] = [...p.holeCards];
+    const r = tkoPoints(p.holeCards, s.board);
+    pts.set(p.playerId, r);
+    const outText = r.out.length > 0 ? ` (out: ${fmtCards(r.out)})` : "";
+    s.log.push(`${name(p)} shows ${fmtCards(p.holeCards)}${outText}: ${tkoSummary(r)}`);
+  }
+
+  const pots = buildPots(s.players);
+  s.pots = pots;
+  const order = orderFromButton(s);
+  const winners: WinnerView[] = [];
+  const get = (p: HandPlayer): PointsResult => pts.get(p.playerId) as PointsResult;
+
+  pots.forEach((pot, potIndex) => {
+    const eligible = live.filter((p) => pot.eligiblePlayerIds.includes(p.playerId));
+    if (eligible.length === 0) return;
+    const empty = eligible.filter((p) => get(p).remaining.length === 0);
+    if (empty.length > 0) {
+      for (const [id, amt] of distribute(pot.amount, empty, order)) {
+        if (amt > 0) winners.push({ playerId: id, amount: amt, potIndex, half: "whole", handName: "No cards left" });
+      }
+      return;
+    }
+    const most = Math.max(...eligible.map((p) => get(p).high));
+    const fewest = Math.min(...eligible.map((p) => get(p).low));
+    const highWinners = eligible.filter((p) => get(p).high === most);
+    const lowWinners = eligible.filter((p) => get(p).low === fewest);
+    const same = highWinners.length === lowWinners.length && highWinners.every((p) => lowWinners.includes(p));
+    if (same) {
+      for (const [id, amt] of distribute(pot.amount, highWinners, order)) {
+        if (amt > 0) winners.push({ playerId: id, amount: amt, potIndex, half: "whole", handName: `${get(highWinners[0]!).high} points` });
+      }
+      return;
+    }
+    const highAmount = Math.ceil(pot.amount / 2);
+    const lowAmount = pot.amount - highAmount;
+    for (const [id, amt] of distribute(highAmount, highWinners, order)) {
+      if (amt > 0) winners.push({ playerId: id, amount: amt, potIndex, half: "high", handName: `${most} points` });
+    }
+    for (const [id, amt] of distribute(lowAmount, lowWinners, order)) {
+      if (amt > 0) winners.push({ playerId: id, amount: amt, potIndex, half: "low", handName: `${fewest} points` });
     }
   });
 

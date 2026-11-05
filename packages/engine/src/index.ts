@@ -12,4 +12,5 @@ export * from "./audit.js";
 export * from "./fairexport.js";
 export * from "./ledger.js";
 export * from "./luck.js";
+export * from "./points.js";
 export * from "./review.js";

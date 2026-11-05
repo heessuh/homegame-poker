@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { VARIANTS } from "@homegame/engine";
+import { VARIANTS, tkoPoints } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack } from "./CardView";
 import { CardFace } from "./CardView";
@@ -24,6 +24,8 @@ export function Table({ view, onSit, onMe, send }: Props) {
   const hasTimer = !!(hand?.actionDeadline && hand.toActSeat !== null);
   const now = useNow(hasTimer);
   const stud = isStud(config);
+  const points = VARIANTS[config.variant]?.scoring === "points";
+  const board = hand?.board ?? [];
   const wrapRef = useRef<HTMLDivElement>(null);
   const winnersByPlayer = new Map<string, WinnerView[]>();
   // Winners about to be paid: the final result if the server sent one, else the suggested split of the pending award.
@@ -140,6 +142,8 @@ export function Table({ view, onSit, onMe, send }: Props) {
             onMe={onMe}
             now={now}
             stud={stud}
+            points={points}
+            board={board}
             wins={winnersByPlayer.get(s.playerId)}
             showdownDim={shownWinners.length > 0 && !winnersByPlayer.has(s.playerId)}
             betPos={bp}
@@ -165,7 +169,7 @@ function hue(name: string): number {
 function SeatBlock(props: {
   idx: number; bb: number;
   s: SeatView; isMe: boolean; style: React.CSSProperties; toAct: boolean; deadline: number | null;
-  timeoutSec: number; now: number; stud: boolean; wins?: WinnerView[]; showdownDim: boolean;
+  timeoutSec: number; now: number; stud: boolean; points: boolean; board: string[]; wins?: WinnerView[]; showdownDim: boolean;
   betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void; canExtend: boolean; extensionSec: number;
 }) {
   const { s, isMe, toAct, wins } = props;
@@ -182,7 +186,7 @@ function SeatBlock(props: {
   const hasHole = !!s.holeCards && s.holeCards.length > 0;
   const live = s.inHand && !s.folded;
   const holeNodes: React.ReactNode[] = hasHole
-    ? s.holeCards!.map((c, i) => <CardFace key={"h" + i + c} card={c} size={size} className={props.stud && isMe ? "mark-down" : ""} />)
+    ? s.holeCards!.map((c, i) => <CardFace key={"h" + i + c} card={c} size={size} className={[props.stud && isMe ? "mark-down" : "", props.points && props.board.some((b) => b[0] === c[0]) ? "cancelled" : ""].filter(Boolean).join(" ")} />)
     : live ? Array.from({ length: s.holeCount }, (_, i) => <CardBack key={"b" + i} size={size} />) : [];
   const upNodes = props.stud && !s.folded
     ? s.upCards.map((c, i) => <CardFace key={"u" + i + c} card={c} size={size} className={isMe ? "mark-up" : "up"} />)
@@ -233,6 +237,10 @@ function SeatBlock(props: {
         <div className="tags">
           {declBadge && <span className="tag decl">{declBadge}</span>}
           {!declBadge && s.hasDeclared && <span className="tag decl ok" aria-label="Declared">✓</span>}
+          {props.points && hasHole && !s.folded && (() => {
+            const r = tkoPoints(s.holeCards!, props.board as never[]);
+            return <span className="tag pts">{r.remaining.length === 0 ? "No cards left" : r.high === r.low ? `${r.high} pts` : `${r.low}–${r.high} pts`}</span>;
+          })()}
           {s.allIn && <span className="tag allin">All-in</span>}
           {s.folded && <span className="tag fold">Fold</span>}
           {s.sittingOut && <span className="tag">Away</span>}
