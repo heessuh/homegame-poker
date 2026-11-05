@@ -1,6 +1,7 @@
 // Spread-limit betting shared by the board games (HouseLimit) and 5-Murder (StudStakes).
 // A bet or raise INCREMENT (raise-to minus the current high bet) must lie in [minBet, cap]. With raiseMustExceed,
-// each raise increment must also be strictly larger than the previous bet/raise increment on the street.
+// each raise increment must also be at least the previous bet/raise increment on the street. (The setting keeps
+// its old name because saved tables store it; it used to mean strictly larger.)
 
 export interface SpreadRules {
   minBet: number;
@@ -35,7 +36,7 @@ export interface SpreadSizing {
 /** Smallest increment that counts as a full bet or raise. */
 export function requiredIncrement(rules: SpreadRules, prevIncrement: number): number {
   if (prevIncrement <= 0 || !rules.raiseMustExceed) return rules.minBet;
-  return Math.max(rules.minBet, prevIncrement + 1);
+  return Math.max(rules.minBet, prevIncrement);
 }
 
 /** Legal raise-to range for a player who is otherwise allowed to raise. Both null when raising is not possible. */

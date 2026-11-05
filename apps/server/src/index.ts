@@ -423,6 +423,11 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       table.hostAdjustStack(playerId, p.playerId, int(p.delta, "Adjustment"));
     }));
 
+    on("host:shuffleSeats", handle(() => {
+      const { table, playerId } = ctx();
+      table.hostShuffleSeats(playerId);
+    }));
+
     on("host:saveDefaults", handle(() => {
       const { table, playerId } = ctx();
       const cfg = table.hostSaveDefaults(playerId);

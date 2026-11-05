@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
   DEFAULT_CONFIG,
   DEFAULT_HOUSE_LIMIT,
@@ -149,6 +149,8 @@ export interface TableSnapshot {
   endedAt: number | null;
   nextDelay: number;
   transfers: Transfer[];
+  /** Host who asked for a seat shuffle that waits for the current hand to end. */
+  seatShuffleBy?: string | null;
   tournament: { status: TourneyState["status"]; levelIndex: number; levelsCompleted: number; levelRemainingMs: number; clockRunning: boolean } | null;
   log: string[];
   /** Dealer ledger, oldest first. Append-only; never truncated. */
@@ -296,6 +298,7 @@ export class Table {
   /** Site budget guard: while set, no new hand starts (the current hand and any dealer award still finish). */
   private budgetNotice: string | null = null;
   private transfers: Transfer[] = [];
+  private seatShuffleBy: string | null = null;
   private t: TourneyState | null = null;
   private levelTimer: unknown = null;
 
@@ -344,6 +347,7 @@ export class Table {
       endedAt: this.endedAt,
       nextDelay: this.nextDelay,
       transfers: this.transfers,
+      seatShuffleBy: this.seatShuffleBy,
       tournament: t
         ? {
             status: t.status, levelIndex: t.levelIndex, levelsCompleted: t.levelsCompleted,
@@ -382,6 +386,7 @@ export class Table {
     this.endedAt = s.endedAt;
     this.nextDelay = s.nextDelay;
     this.transfers = s.transfers ?? [];
+    this.seatShuffleBy = s.seatShuffleBy ?? null;
     this.log = s.log ?? [];
     this.dealerLog = s.dealerLog ?? [];
     if (this.dealerLog.length) this.dealerHead = this.dealerLog[this.dealerLog.length - 1]!.hash;
@@ -1382,6 +1387,58 @@ export class Table {
     }
     this.eliminate(h.startStacks);
     this.applyPending();
+    this.applySeatShuffle();
+  }
+
+  hostShuffleSeats(playerId: string): void {
+    this.asHost(playerId, "shuffleSeats", (host, rec) => this.doShuffleSeats(host, rec));
+  }
+
+  private doShuffleSeats(host: Player, rec: Rec): void {
+    if (this.seated().length < 2) throw new UserError("Seat at least two players first.");
+    if (this.handOpen()) {
+      if (this.seatShuffleBy !== null) throw new UserError("The seats are already set to shuffle after this hand.");
+      this.seatShuffleBy = host.id;
+      rec(`${host.name} asked to shuffle the seats after this hand`, { queued: true });
+      this.addLog("Dealer will shuffle the seats after this hand");
+    } else {
+      const seats = this.shuffleSeats();
+      rec(`${host.name} shuffled the seats: ${this.seatList(seats)}`, { queued: false, seats });
+      this.addLog(`Dealer shuffled the seats: ${this.seatList(seats)}`);
+    }
+    this.changed();
+  }
+
+  private applySeatShuffle(): void {
+    const by = this.seatShuffleBy;
+    if (by === null) return;
+    this.seatShuffleBy = null;
+    if (this.seated().length < 2) return;
+    const seats = this.shuffleSeats();
+    const who = this.players.get(by) ?? this.players.get(this.hostId ?? "");
+    if (who) this.appendDealer(who, "seatShuffleApplied", `The queued seat shuffle was applied: ${this.seatList(seats)}`, { queued: true, seats });
+    this.addLog(`Dealer shuffled the seats: ${this.seatList(seats)}`);
+  }
+
+  /** Uniform random reseating among the occupied seats, redrawn if nobody would move. The button stays with its seat. */
+  private shuffleSeats(): { playerId: string; name: string; from: number; to: number }[] {
+    const players = this.seated();
+    const open = players.map((p) => p.seat!);
+    const to = open.slice();
+    do {
+      for (let i = to.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1);
+        [to[i], to[j]] = [to[j]!, to[i]!];
+      }
+    } while (to.every((s, i) => s === open[i]));
+    return players.map((p, i) => {
+      p.seat = to[i]!;
+      return { playerId: p.id, name: p.name, from: open[i]!, to: to[i]! };
+    });
+  }
+
+  private seatList(seats: { name: string; to: number }[]): string {
+    return seats.slice().sort((a, b) => a.to - b.to).map((s) => `seat ${s.to + 1} ${s.name}`).join(", ");
   }
 
   private applyTransfers(): void {
@@ -1889,6 +1946,7 @@ export class Table {
       pendingAward: this.pendingAward ? { ...this.pendingAward, candidatePlayerIds: [...this.pendingAward.candidatePlayerIds], suggested: this.pendingAward.suggested.map((x) => ({ ...x })) } : null,
       handList: this.handList(),
       canExtend: this.canExtendNow(me),
+      seatShufflePending: this.seatShuffleBy !== null,
       tournament: this.tournamentView(),
       siteNotice: this.budgetNotice,
       fairness: this.deckSource ? null : { nextHandNumber: this.handCounter + 1, serverSeedHash: seedHash(this.nextServerSeed) },

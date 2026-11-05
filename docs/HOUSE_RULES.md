@@ -12,16 +12,16 @@ These rules apply to every game we play: Hold’em, every Omaha game, FYST and 5
 - **Smallest bet:** 20¢.
 - **Largest bet or raise:** $2 at a time. This is the amount you add on top of the current bet, not the total.
 - **Raises per round:** at most 3 after the opening bet, even when only two players are left.
-- **Each raise must be bigger than the last one.** If a player leads out with a bet, the next raise must be more than that bet. If a raise follows a raise, it must be more than the raise before it.
-  - Example: Ana bets $1. Bo must raise by more than $1, so to at least $2.01. Bo raises by $1.50 (to $2.50). Cy must now raise by more than $1.50.
-  - Because no single bet or raise can be more than $2, a $2 bet or raise can’t be raised again.
-  - Before the flop, the 20¢ big blind counts as the opening bet, so the smallest raise is to 41¢.
+- **Each raise must be at least as big as the last one.** If a player leads out with a bet, the next raise must be at least that bet. If a raise follows a raise, it must be at least the raise before it.
+  - Example: Ana bets $1. Bo must raise by at least $1, so to at least $2. Bo raises by $1.50 (to $2.50). Cy must now raise by at least $1.50, so to at least $4.
+  - The $2 limit is for each player’s bet or raise, not the whole round. If Ana bets $2, Bo can raise by $2 (to $4) and Cy can raise by $2 again (to $6), up to the 3-raise limit.
+  - Before the flop, the 20¢ big blind counts as the opening bet, so the smallest raise is to 40¢.
 - **All-in:** you can always go all-in for less. An all-in that is smaller than a legal raise doesn’t count as a raise and doesn’t reopen the betting for players who already acted.
 
 ### Cash games vs. tournaments
 
 - **Cash (house) games:** the house limit above always applies, and it **replaces** the pot limit in the Omaha games. A raise of up to $2 is allowed even when the pot is smaller than that.
-  - Example: blinds 10¢/20¢, the first player to act in Omaha can raise to anywhere from 41¢ to $2.20, not just to the 70¢ pot size.
+  - Example: blinds 10¢/20¢, the first player to act in Omaha can raise to anywhere from 40¢ to $2.20, not just to the 70¢ pot size.
 - **Tournaments:** the house limit does **not** apply. Omaha games play regular **pot-limit**, and Hold’em plays regular **no-limit**.
 
 The host can also turn the house limit off for a cash table to play standard no-limit or pot-limit.
@@ -55,7 +55,7 @@ Our own five-card stud game. It isn’t the traditional Murder.
 
 - **Ante:** 20¢ from every player.
 - **Bets and raises:** from 20¢ up to **$1** at a time in every round except the last. In the **last round** they can be up to **$2**.
-- **Raises:** at most 3 per round, and each raise must be bigger than the one before, the same as in all house games.
+- **Raises:** at most 3 per round, and each raise must be at least as big as the one before, the same as in all house games.
 - **Exchanges:** swapping a face-down card costs **50¢**, which goes into the pot. Swapping a face-up card is free.
 
 ### How a hand goes
@@ -99,4 +99,4 @@ The host can switch 5-Murder to cards speak instead. Then nobody declares: the b
 
 ## Dealer controls
 
-The dealer handles the money side of the game. Rebuys go through the dealer; players can’t add chips themselves. By default the dealer awards every pot, and confirms each payout with **Next hand** before the next deal. The host can switch awarding to Automatic. The dealer can also move chips between players, sit a player out who forgot to, and change the time limit for any player. Everything the dealer does is written in the hand log.
+The dealer handles the money side of the game. Rebuys go through the dealer; players can’t add chips themselves. By default the dealer awards every pot, and confirms each payout with **Next hand** before the next deal. The host can switch awarding to Automatic. The dealer can also move chips between players, sit a player out who forgot to, shuffle the seats, and change the time limit for any player. Everything the dealer does is written in the hand log.

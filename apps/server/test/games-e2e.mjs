@@ -418,8 +418,9 @@ async function scenHouseBoard(g, ctx, variant, n, label) {
   // ---- preflop
   let a = await T.actor();
   let l = a.v.hand.legal;
-  rangeIs(l, 41, expMaxPre, "preflop first raise");
-  let err = await T.act(a, { type: "raise", amount: 40 });
+  // The first raise is by the big blind: 20 + 20 = 40 minimum (a raise is at least as big as the last one).
+  rangeIs(l, 40, expMaxPre, "preflop first raise");
+  let err = await T.act(a, { type: "raise", amount: 39 });
   g.ok(!!err && MONEY_RE.test(err), `${label}: raise below minimum should be rejected with a dollar-formatted error, got ${JSON.stringify(err)}`);
   err = await T.act(a, { type: "raise", amount: expMaxPre + 1 });
   g.ok(!!err && MONEY_RE.test(err), `${label}: raise above maximum should be rejected with a dollar-formatted error, got ${JSON.stringify(err)}`);
@@ -428,28 +429,31 @@ async function scenHouseBoard(g, ctx, variant, n, label) {
   let hi = 20, amt = Math.min(l.maxRaiseTo, 120), inc = amt - hi; // raise by 100 (house limit applies to Omaha too)
   g.ok(!(await T.act(a, { type: "raise", amount: amt })), `${label}: legal raise to ${amt} was rejected`);
   a = await T.actor(); l = a.v.hand.legal;
-  g.ok(l.minRaiseTo === amt + inc + 1, `${label}: after a raise by ${inc} the next min should be ${amt + inc + 1}, got ${l.minRaiseTo}`);
-  rangeIs(l, 221, 320, "after raise by 100");
+  g.ok(l.minRaiseTo === amt + inc, `${label}: after a raise by ${inc} the next min should be ${amt + inc}, got ${l.minRaiseTo}`);
+  rangeIs(l, 220, 320, "after raise by 100");
   for (let r = 2; r <= 3; r++) {
     const to = l.minRaiseTo, i2 = to - amt;
     g.ok(!(await T.act(a, { type: "raise", amount: to })), `${label}: raise #${r} to ${to} was rejected`);
     amt = to; inc = i2;
     a = await T.actor(); l = a.v.hand.legal;
-    if (r < 3) g.ok(l.minRaiseTo === amt + inc + 1, `${label}: raise #${r + 1} min should be ${amt + inc + 1}, got ${l.minRaiseTo}`);
+    if (r < 3) g.ok(l.minRaiseTo === amt + inc, `${label}: raise #${r + 1} min should be ${amt + inc}, got ${l.minRaiseTo}`);
   }
   g.ok(l.minRaiseTo === null && l.maxRaiseTo === null && l.callAmount > 0, `${label}: 4th preflop raise must not be offered, legal=${l.minRaiseTo}..${l.maxRaiseTo}`);
   err = await T.act(a, { type: "raise", amount: amt + 150 });
   g.ok(!!err, `${label}: a 4th raise was accepted`);
   await callAround("preflop");
-  // ---- flop: opening bet of 200 cannot be raised
+  // ---- flop: a 200 bet can be raised by exactly 200 (to 400), not 401; the next raise is offered at exactly 600
   if (phase() !== "flop") throw new Error(`expected flop, got ${phase()}`);
   a = await T.actor(); l = a.v.hand.legal;
   rangeIs(l, 20, 200, "flop opening bet");
   g.ok(!(await T.act(a, { type: "raise", amount: 200 })), `${label}: opening bet of 200 rejected`);
-  a = await T.actor(); l = a.v.hand.legal;
-  g.ok(l.minRaiseTo === null && l.maxRaiseTo === null && l.callAmount === 200, `${label}: raising a 200 bet must be off (min ${l.minRaiseTo}, call ${l.callAmount})`);
-  err = await T.act(a, { type: "raise", amount: 400 });
-  g.ok(!!err, `${label}: a raise over a max bet must be rejected`);
+  const b = await T.actor(); const lb = b.v.hand.legal;
+  g.ok(lb.callAmount === 200 && lb.minRaiseTo === 400 && lb.maxRaiseTo === 400, `${label}: after a 200 bet the raise must be offered at exactly 400, got ${lb.minRaiseTo}..${lb.maxRaiseTo} (call ${lb.callAmount})`);
+  err = await T.act(b, { type: "raise", amount: 401 });
+  g.ok(!!err && MONEY_RE.test(err), `${label}: a raise to 401 over a 200 bet must be rejected, got ${JSON.stringify(err)}`);
+  g.ok(!(await T.act(b, { type: "raise", amount: 400 })), `${label}: a raise to exactly 400 over a 200 bet was rejected`);
+  const c = await T.actor(); const lc = c.v.hand.legal;
+  rangeIs(lc, 600, 600, "after a raise to 400");
   await callAround("flop");
   // ---- turn: bet 20 then 3 raises
   if (phase() !== "turn") throw new Error(`expected turn, got ${phase()}`);
@@ -457,14 +461,14 @@ async function scenHouseBoard(g, ctx, variant, n, label) {
   rangeIs(l, 20, 200, "turn opening bet");
   await T.act(a, { type: "raise", amount: 20 });
   a = await T.actor(); l = a.v.hand.legal;
-  rangeIs(l, 41, 220, "turn raise after a bet of 20");
+  rangeIs(l, 40, 220, "turn raise after a bet of 20");
   amt = 20; inc = 20;
   for (let r = 1; r <= 3; r++) {
     const to = l.minRaiseTo;
     g.ok(!(await T.act(a, { type: "raise", amount: to })), `${label}: turn raise #${r} to ${to} rejected`);
     inc = to - amt; amt = to;
     a = await T.actor(); l = a.v.hand.legal;
-    if (r < 3) g.ok(l.minRaiseTo === amt + inc + 1, `${label}: turn raise #${r + 1} min should be ${amt + inc + 1}, got ${l.minRaiseTo}`);
+    if (r < 3) g.ok(l.minRaiseTo === amt + inc, `${label}: turn raise #${r + 1} min should be ${amt + inc}, got ${l.minRaiseTo}`);
   }
   g.ok(l.minRaiseTo === null, `${label}: 4th raise on the turn must not be offered (bet + 3 raises)`);
   await callAround("turn");
@@ -511,12 +515,12 @@ async function scenMurder3(g, ctx) {
     if (first) expect(l.minRaiseTo === 20 && l.maxRaiseTo === (last ? 200 : 100), `${h.phase} opening bet range ${l.minRaiseTo}..${l.maxRaiseTo}, expected 20..${last ? 200 : 100}`);
     if (h.phase === "2nd") {
       if (first) return { type: "raise", amount: 100 };
-      expect(l.minRaiseTo === null, `a bet of the 100 maximum must not be raisable before the last round (min ${l.minRaiseTo})`);
+      expect(l.minRaiseTo === 200 && l.maxRaiseTo === 200, `a bet of the 100 maximum can be raised by exactly 100 (to 200) before the last round (min ${l.minRaiseTo}..${l.maxRaiseTo})`);
       return callOrCheck;
     }
     if (h.phase === "3rd") {
       if (first) return { type: "raise", amount: 50 };
-      if (!seen.p3) { seen.p3 = true; expect(l.minRaiseTo === 101 && l.maxRaiseTo === 150, `after a bet of 50 the raise range should be 101..150, is ${l.minRaiseTo}..${l.maxRaiseTo}`); }
+      if (!seen.p3) { seen.p3 = true; expect(l.minRaiseTo === 100 && l.maxRaiseTo === 150, `after a bet of 50 the raise range should be 100..150, is ${l.minRaiseTo}..${l.maxRaiseTo}`); }
       return callOrCheck;
     }
     if (h.phase === "5th") {
@@ -527,7 +531,7 @@ async function scenMurder3(g, ctx) {
     }
     if (last) {
       if (first) return { type: "raise", amount: 200 };
-      expect(l.minRaiseTo === null, `a last-round bet of 200 must not be raisable (min ${l.minRaiseTo})`);
+      expect(l.minRaiseTo === 400 && l.maxRaiseTo === 400, `a last-round bet of 200 can be raised by exactly 200 (to 400) (min ${l.minRaiseTo}..${l.maxRaiseTo})`);
       return callOrCheck;
     }
     return callOrCheck;

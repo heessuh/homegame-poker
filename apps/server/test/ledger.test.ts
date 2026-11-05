@@ -328,6 +328,7 @@ describe("dealer ledger: every host path is logged", () => {
     hostForceTimeout: () => { const r = hand(); return { r, run: (h) => r.table.hostForceTimeout(h, actorOf(r)) }; },
     hostTournamentLevel: () => { const r = tour(); return { r, run: (h) => r.table.hostTournamentLevel(h, 1) }; },
     hostTournamentClock: () => { const r = tour(); return { r, run: (h) => r.table.hostTournamentClock(h, 5000) }; },
+    hostShuffleSeats: () => { const r = rig(2); seatAll(r); return { r, run: (h) => r.table.hostShuffleSeats(h) }; },
   };
 
   it("every host* method on Table appends to the ledger when it succeeds, and nothing when refused", () => {
