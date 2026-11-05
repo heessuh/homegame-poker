@@ -156,6 +156,8 @@ export type Phase =
 
 export interface SeatView {
   seat: number;
+  /** Not dealt in until the big blind reaches this player. */
+  waitingForBlind: boolean;
   playerId: string;
   name: string;
   stack: number;
@@ -318,7 +320,15 @@ export interface HandListItem {
 export interface TableView {
   tableId: string;
   hostPlayerId: string | null;
-  you: { playerId: string; seat: number | null; isHost: boolean };
+  you: {
+    playerId: string;
+    seat: number | null;
+    isHost: boolean;
+    /** Cash board games: you missed the big blind, so you wait for it to reach you, or post one to play sooner. */
+    blindDue: boolean;
+    /** You chose to post a big blind and play the next hand. */
+    postBlind: boolean;
+  };
   config: TableConfig;
   /** Applies at the start of the next hand. */
   pendingConfig: TableConfig | null;
@@ -351,6 +361,7 @@ export interface ClientToServerEvents {
   setAvatar: (p: { avatar: string | null }) => void;
   sit: (p: { seat: number; buyIn: number }) => void;
   stand: () => void; // cash out at end of current hand
+  postBlind: (p: { post: boolean }) => void;
   sitOut: (p: { sittingOut: boolean }) => void;
   /** Ask for extensionSec more seconds on your own clock (once per turn). */
   extendTime: () => void;

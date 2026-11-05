@@ -18,6 +18,16 @@ These rules apply to every game we play: Hold’em, every Omaha game, FYST and 5
   - Before the flop, the 20¢ big blind counts as the opening bet, so the smallest raise is to 40¢.
 - **All-in:** you can always go all-in for less. An all-in that is smaller than a legal raise doesn’t count as a raise and doesn’t reopen the betting for players who already acted.
 
+### Joining mid-game (missed blinds)
+
+These rules apply to cash games in Hold’em and Omaha. 5-Murder has antes instead of blinds, and in tournaments everyone is dealt in anyway.
+
+- If you sit down after the game has started, or the big blind passes you while you’re sitting out, you’ve missed a blind.
+- You then have two choices:
+  - **Wait:** you’re dealt in when the big blind reaches you, and you pay it then. This is the default.
+  - **Post now:** post one big blind (20¢) and play the next hand from where you sit. It’s a live bet, so it counts toward your call. If you’d be in the small or big blind that hand anyway, you just pay that blind instead.
+- This doesn’t apply before the first hand of a game, or when there aren’t two other players to keep a game going.
+
 ### Cash games vs. tournaments
 
 - **Cash (house) games:** the house limit above always applies, and it **replaces** the pot limit in the Omaha games. A raise of up to $2 is allowed even when the pot is smaller than that.

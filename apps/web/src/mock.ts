@@ -21,7 +21,7 @@ export const FIXTURE_LABELS: Record<FixtureId, string> = {
 function seat(i: number, name: string, stack: number, extra: Partial<SeatView> = {}): SeatView {
   const holeCount = extra.holeCards ? extra.holeCards.length : extra.inHand === false ? 0 : 2;
   return {
-    seat: i, playerId: `p${i}`, name, stack, bet: 0, inHand: true, folded: false, allIn: false,
+    seat: i, waitingForBlind: false, playerId: `p${i}`, name, stack, bet: 0, inHand: true, folded: false, allIn: false,
     sittingOut: false, connected: true, isButton: false, avatar: null, timeLimitSec: null, holeCards: null, holeCount, upCards: [], declared: null, hasDeclared: false, lastAction: null, ...extra,
   };
 }
@@ -44,7 +44,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     ...DEFAULT_CONFIG, variant: "plo5", smallBlind: 10, bigBlind: 20, maxSeats: 6, actionTimeoutSec: 30, minBuyIn: 500, maxBuyIn: 5000,
   };
   const plo: TableView = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true },
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false },
     config: ploCfg, pendingConfig: null, status: "playing",
     seats: [
       seat(0, "You", 2450, { avatar: "🐼", holeCards: cardsOf("As Ks Qd Jd Th"), bet: 0 }),
@@ -85,7 +85,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
 
   const nlheCfg: TableConfig = { ...DEFAULT_CONFIG, maxSeats: 6 };
   const nlhe: TableView = {
-    tableId: "demo", hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false },
+    tableId: "demo", hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false, blindDue: false, postBlind: false },
     config: nlheCfg, pendingConfig: null, status: "playing",
     seats: [
       null,
@@ -123,7 +123,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   };
 
   const waiting: TableView = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true },
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false },
     config: { ...DEFAULT_CONFIG, maxSeats: 9 },
     pendingConfig: { ...DEFAULT_CONFIG, maxSeats: 9, variant: "plo4", bigBlind: 40, smallBlind: 20 },
     status: "waiting",
@@ -152,7 +152,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     actionTimeoutSec: 30, tournament: TOURNAMENT_PRESETS.standard.config, money: "chips",
   };
   const tourney: TableView = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true },
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false },
     config: tCfg, pendingConfig: null, status: "playing",
     seats: [
       seat(0, "You", 6200, { avatar: "🏆", holeCards: cardsOf("Ah Kh Qs Jd"), bet: 0 }),
@@ -195,7 +195,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   // Dealer decides: hand over, pot waiting for the host (viewer).
   const award: TableView = {
     ...nlhe,
-    tableId: "demo", hostPlayerId: "p2", you: { playerId: "p2", seat: 2, isHost: true },
+    tableId: "demo", hostPlayerId: "p2", you: { playerId: "p2", seat: 2, isHost: true, blindDue: false, postBlind: false },
     config: { ...nlheCfg, awardMode: "host" },
     hand: {
       handNumber: 31, phase: "showdown", board: cardsOf("Qs 9d 4c Kh 2s"),
@@ -211,7 +211,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   // Same pending award, but the viewer (Bo's seat 2 -> "You") is a plain player; the dealer is Alice.
   const awardViewer: TableView = {
     ...award,
-    hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false },
+    hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false, blindDue: false, postBlind: false },
     hand: { ...award.hand!, winners: [{ playerId: "p4", amount: 2460, potIndex: 0, half: "whole", handName: "Three of a kind, Nines" }] },
   };
 
@@ -246,7 +246,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     stage: "bet", toActSeat: 0, actionDeadline: now + 20000, legal: null, deckHash, winners: null, ...over,
   });
   const m5Base = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true }, config: m5Cfg, pendingConfig: null,
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false }, config: m5Cfg, pendingConfig: null,
     status: "playing" as const, lastHand: null, ledger: m5Ledger, pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], seatShufflePending: false, canExtend: false, tournament: null,
   };
   const noBet = { canFold: false, canCheck: false, callAmount: 0, minRaiseTo: null, maxRaiseTo: null };
