@@ -3,7 +3,7 @@ import { bestLow8, bestLowAny } from "./evaluate.js";
 import { isFullDeck } from "./audit.js";
 import type { HandRecord, LuckPlayerRow, LuckReport, PotView, RngAuditVerdict } from "./protocol.js";
 import { chiSquareGof, chiSquareSf, choose } from "./stats.js";
-import { VARIANTS, splitOf, type Variant, type VariantId } from "./variants.js";
+import { VARIANTS, holeRule, splitOf, type HoleRule, type Variant, type VariantId } from "./variants.js";
 
 /**
  * Luck report (pure). Two views of "is anyone getting better cards?", both per player and both from the revealed decks:
@@ -58,7 +58,7 @@ export type SkipReason = "stud" | "old" | "bad";
 export function reconstructDeal(rec: LuckableHand): DealtHand | SkipReason {
   const v: Variant | undefined = VARIANTS[rec.variant];
   if (!v) return "bad";
-  if (v.kind === "stud") return "stud";
+  if (v.kind === "stud" || v.scoring === "points") return "stud";
   const order = rec.luck?.dealOrder;
   if (!rec.luck || rec.luck.v !== 1 || !Array.isArray(order)) return "old";
   const n = order.length;
@@ -148,7 +148,7 @@ function score5(flush: boolean): number {
 
 const comboCache = new Map<string, number[][]>();
 /** Index lists of every legal five-card hand: any 5 of m cards, or exactly 2 of h hole cards + 3 of the board. */
-function handIndexes(h: number, b: number, mustTwo: boolean): number[][] {
+function handIndexes(h: number, b: number, mustTwo: HoleRule): number[][] {
   const key = `${h}/${b}/${mustTwo}`;
   let r = comboCache.get(key);
   if (r) return r;
@@ -165,7 +165,12 @@ function handIndexes(h: number, b: number, mustTwo: boolean): number[][] {
     }
     return out;
   };
-  if (mustTwo) {
+  if (mustTwo === "2or3") {
+    for (const [hk, bk] of [[2, 3], [3, 2]] as const) {
+      if (h < hk || b < bk) continue;
+      for (const hp of pick(h, hk)) for (const bp of pick(b, bk)) r.push([...hp, ...bp.map((x) => x + h)]);
+    }
+  } else if (mustTwo) {
     for (const hp of pick(h, 2)) for (const bp of pick(b, 3)) r.push([...hp, ...bp.map((x) => x + h)]);
   } else r = pick(h + b, 5);
   comboCache.set(key, r);
@@ -173,7 +178,7 @@ function handIndexes(h: number, b: number, mustTwo: boolean): number[][] {
 }
 
 /** Best high score for the variant's rule; equals bestHigh(...).score. */
-export function fastHighScore(hole: readonly Card[], board: readonly Card[], mustTwo: boolean): number {
+export function fastHighScore(hole: readonly Card[], board: readonly Card[], mustTwo: HoleRule): number {
   const all = [...hole, ...board];
   const m = all.length;
   const rk = new Array<number>(m);
@@ -194,10 +199,10 @@ export function fastHighScore(hole: readonly Card[], board: readonly Card[], mus
 }
 
 function scorePlayer(v: Variant, hole: readonly Card[], board: Card[], needLow: boolean): Scored {
-  const high = fastHighScore(hole, board, v.mustUseTwoHole);
+  const high = fastHighScore(hole, board, holeRule(v));
   if (!needLow) return { high, low: null };
   const lowFn = v.lowRule === "any" ? bestLowAny : bestLow8;
-  return { high, low: lowFn(hole as Card[], board, v.mustUseTwoHole)?.score ?? null };
+  return { high, low: lowFn(hole as Card[], board, holeRule(v))?.score ?? null };
 }
 
 /** Indices of everyone sharing the best score (highest when `higher`, else lowest); null scores are ignored. */

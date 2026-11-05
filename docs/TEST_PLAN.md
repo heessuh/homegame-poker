@@ -94,6 +94,10 @@ There must be 15 lines starting with `PASS` and none starting with `FAIL`. Recor
 | Omaha Low 8 or better | `plo4-lo8` | Same; low or fallback-high winners |
 | Omaha Low (no qualifier) | `plo4-lo` | Same; winners hold low hands |
 | FYST | `fyst` | Same; with 3+ players at showdown the best low does **not** win (unless all tie) |
+| SMD 4-Card (Omaha Hi/Lo, no qualifier) | `smd4` | Same; every pot splits High/Low, and each half is won by the best hand using two or three hole cards (a king-high low can take the low half) |
+| SMD 5-Card (Omaha Hi/Lo, no qualifier) | `smd5` | Same, with five hole cards and the same two-or-three rule |
+| TKO 4-Card (points, high and low) | `tko4` | Same; no poker hands: a hole card whose rank is on the board is out, the most points win half and the fewest win the other half, and a player with no cards left takes the whole pot |
+| TKO 5-Card (points, high and low) | `tko5` | Same, with five hole cards and the same points rules |
 | 5-Murder | `murder5` | Same, plus up cards visible to all, declarations hidden until everyone declares, discard reshuffle with 8 players |
 
 ### Rule scenarios

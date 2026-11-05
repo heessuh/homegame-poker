@@ -1,4 +1,5 @@
 import type { Card } from "./cards.js";
+import type { HoleRule } from "./variants.js";
 
 export interface HighResult {
   score: number;
@@ -114,8 +115,17 @@ function combos<T>(items: T[], k: number): T[][] {
   return out;
 }
 
-/** All 5-card candidate hands under the Hold'em or Omaha rule. */
-function candidates(hole: Card[], board: Card[], mustUseTwoHole: boolean): Card[][] {
+/** All 5-card candidate hands under the Hold'em, Omaha or SMD rule. */
+function candidates(hole: Card[], board: Card[], mustUseTwoHole: HoleRule): Card[][] {
+  if (mustUseTwoHole === "2or3") {
+    const res: Card[][] = [];
+    for (const [hk, bk] of [[2, 3], [3, 2]] as const) {
+      if (hole.length < hk || board.length < bk) continue;
+      const bc = combos(board, bk);
+      for (const h of combos(hole, hk)) for (const b of bc) res.push([...h, ...b]);
+    }
+    return res;
+  }
   if (mustUseTwoHole) {
     if (hole.length < 2 || board.length < 3) return [];
     const res: Card[][] = [];
@@ -128,7 +138,7 @@ function candidates(hole: Card[], board: Card[], mustUseTwoHole: boolean): Card[
   return combos(all, 5);
 }
 
-export function bestHigh(hole: Card[], board: Card[], mustUseTwoHole: boolean): HighResult {
+export function bestHigh(hole: Card[], board: Card[], mustUseTwoHole: HoleRule): HighResult {
   let best: (Eval5 & { cards: Card[] }) | null = null;
   for (const c of candidates(hole, board, mustUseTwoHole)) {
     const e = eval5Full(c);
@@ -142,7 +152,7 @@ export function bestHigh(hole: Card[], board: Card[], mustUseTwoHole: boolean): 
  * Ace-to-five low with no qualifier: aces are low, straights and flushes don't count,
  * pairs do (any no-pair hand beats any pair). LOWER score wins. Null only without five cards.
  */
-export function bestLowAny(hole: Card[], board: Card[], mustUseTwoHole: boolean): LowResult | null {
+export function bestLowAny(hole: Card[], board: Card[], mustUseTwoHole: HoleRule): LowResult | null {
   let best: LowResult | null = null;
   for (const c of candidates(hole, board, mustUseTwoHole)) {
     const lows = c.map((x) => {
@@ -167,7 +177,7 @@ export function bestLowAny(hole: Card[], board: Card[], mustUseTwoHole: boolean)
   return best;
 }
 
-export function bestLow8(hole: Card[], board: Card[], mustUseTwoHole: boolean): LowResult | null {
+export function bestLow8(hole: Card[], board: Card[], mustUseTwoHole: HoleRule): LowResult | null {
   let best: LowResult | null = null;
   for (const c of candidates(hole, board, mustUseTwoHole)) {
     const lows = c.map((x) => {

@@ -219,7 +219,7 @@ function Luck({ luck }: { luck: LuckReport }) {
             <b>All-in luck</b> only covers hands where the money went in with cards still to come. For each, we work out every player’s chance of winning at that
             moment (all possible remaining cards), multiply by the pot they were playing for, and compare with what they actually won. “Expected” is
             that average result, not a promise. A verdict needs at least {luck.minDealt} hands (and {luck.minAllInHands} all-ins for the all-in column).
-            {skipped > 0 && ` ${num(skipped)} ${skipped === 1 ? "hand was" : "hands were"} left out (5-Murder and other stud hands, or hands from before this report existed).`}
+            {skipped > 0 && ` ${num(skipped)} ${skipped === 1 ? "hand was" : "hands were"} left out (5-Murder, TKO and other hands that are not scored by poker hands, or hands from before this report existed).`}
           </p>
           {luck.table && (
             <p className="muted small">

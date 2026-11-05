@@ -6,7 +6,7 @@ All money is in dollars and cents. On the site, one chip is one cent, and amount
 
 ## Betting in all house games
 
-These rules apply to every game we play: Hold’em, every Omaha game, FYST and 5-Murder (5-Murder has its own limits, listed below).
+These rules apply to every game we play: Hold’em, every Omaha game, SMD, TKO, FYST and 5-Murder (5-Murder has its own limits, listed below).
 
 - **Blinds:** 10¢ small blind and 20¢ big blind.
 - **Smallest bet:** 20¢.
@@ -56,6 +56,30 @@ All are 4-card Omaha. In cash games they use the house limit above (which replac
   - If only one player is left in a pot, they win it.
 
 The standard Omaha Hi/Lo games (4-card and 5-card) keep the usual 8-or-better qualifier for the low half.
+
+## SMD
+
+SMD comes in a 4-card and a 5-card version. It is Omaha Hi/Lo with no qualifier, but you may use **2 or 3 of your hole cards** (and so 3 or 2 board cards) to make each hand.
+
+- **High:** your best five-card poker hand, using 2 or 3 hole cards.
+- **Low:** your lowest five-card hand, using 2 or 3 hole cards. There is **no 8-or-lower rule**, so even a king-high low can win. Aces are low, straights and flushes don’t count against a low, and pairs do, as in Hold’em Hi/Lo above.
+- The pot is split between the best high and the best low. You can use different cards for your high and your low. If the pot can’t be split evenly, the odd chip goes to the high half.
+- Betting is the same as in the other Omaha games.
+
+## TKO
+
+TKO comes in a 4-card and a 5-card version. It is dealt like Omaha, but there are **no poker hands**. You count points.
+
+- **Card values:** 2 to 9 are worth their number. The ten, jack, queen and king are worth **10 each**. An ace is worth **11 or 1**.
+- **Cards that knock out:** whenever a card on the board has the same rank as a card in your hand, that card of yours is **out** and no longer counts. If you hold two cards of that rank, both are out. Board cards never count for anyone. This happens on the flop, the turn and the river.
+- **At the end, the cards speak.** Your total is the points of the cards you still hold.
+  - The player with the **most** points wins half the pot. Aces count as 11 for this.
+  - The player with the **fewest** points wins the other half. Aces count as 1 for this.
+  - If players tie for most or fewest, they split that half. If the pot can’t be split evenly, the odd chip goes to the most-points half.
+  - If everyone ties, or only one player is left in a pot, it is split among them, or goes to the one player.
+- **No cards left:** if all your cards are knocked out, you win the **whole pot** outright. If more than one player has no cards left, they split the pot.
+- Betting is the same as in the other Omaha games.
+- On the table, knocked-out cards are dimmed, and your running points show next to your name.
 
 ## 5-Murder
 
