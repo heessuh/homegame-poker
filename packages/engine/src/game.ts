@@ -13,6 +13,8 @@ export interface HandSeatInput {
 }
 
 export interface StartHandInput {
+  /** Player ids who post a big blind to come in without waiting for it to reach them (board games). */
+  extraPosts?: string[];
   handNumber: number;
   variant: VariantId;
   seats: HandSeatInput[];
@@ -235,6 +237,12 @@ export function startHand(input: StartHandInput): HandState {
   s.log.push(`Hand #${s.handNumber} (${v.name}), button: seat ${s.buttonSeat}`);
   s.log.push(`${name(sb)} posts small blind ${sbPaid}${sb.allIn ? " (all-in)" : ""}`);
   s.log.push(`${name(bb)} posts big blind ${bbPaid}${bb.allIn ? " (all-in)" : ""}`);
+  // Players coming in early post a big blind wherever they sit; in the blinds they just pay their blind.
+  for (const p of s.players) {
+    if (p === sb || p === bb || !input.extraPosts?.includes(p.playerId)) continue;
+    const paid = post(p, input.bigBlind);
+    s.log.push(`${name(p)} posts ${paid} to come in${p.allIn ? " (all-in)" : ""}`);
+  }
 
   proceed(s, bbIdx);
   return s;

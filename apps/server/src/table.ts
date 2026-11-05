@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
   DEFAULT_CONFIG,
   DEFAULT_HOUSE_LIMIT,
@@ -94,6 +94,10 @@ export interface Player {
   adjustQueued: number;
   /** Sitting out only because the chips ran out (a dealer top-up sits them back in). */
   busted: boolean;
+  /** Cash board games: joined mid-game or the big blind passed while away. Not dealt in until it comes around or they post. */
+  blindDue: boolean;
+  /** Chose to post a big blind and play the next hand. */
+  postBlind: boolean;
   avatar: string | null;
   /** Host override of the action timer: null = table default, 0 = no limit. */
   timerSec: number | null;
@@ -149,6 +153,8 @@ export interface TableSnapshot {
   endedAt: number | null;
   nextDelay: number;
   transfers: Transfer[];
+  /** Host who asked for a seat shuffle that waits for the current hand to end. */
+  seatShuffleBy?: string | null;
   tournament: { status: TourneyState["status"]; levelIndex: number; levelsCompleted: number; levelRemainingMs: number; clockRunning: boolean } | null;
   log: string[];
   /** Dealer ledger, oldest first. Append-only; never truncated. */
@@ -296,6 +302,7 @@ export class Table {
   /** Site budget guard: while set, no new hand starts (the current hand and any dealer award still finish). */
   private budgetNotice: string | null = null;
   private transfers: Transfer[] = [];
+  private seatShuffleBy: string | null = null;
   private t: TourneyState | null = null;
   private levelTimer: unknown = null;
 
@@ -344,6 +351,7 @@ export class Table {
       endedAt: this.endedAt,
       nextDelay: this.nextDelay,
       transfers: this.transfers,
+      seatShuffleBy: this.seatShuffleBy,
       tournament: t
         ? {
             status: t.status, levelIndex: t.levelIndex, levelsCompleted: t.levelsCompleted,
@@ -382,6 +390,7 @@ export class Table {
     this.endedAt = s.endedAt;
     this.nextDelay = s.nextDelay;
     this.transfers = s.transfers ?? [];
+    this.seatShuffleBy = s.seatShuffleBy ?? null;
     this.log = s.log ?? [];
     this.dealerLog = s.dealerLog ?? [];
     if (this.dealerLog.length) this.dealerHead = this.dealerLog[this.dealerLog.length - 1]!.hash;
@@ -470,7 +479,7 @@ export class Table {
     } else {
       const id = randomBytes(8).toString("hex");
       p = {
-        id, token, name: this.uniqueName(name, id), connections: 0, seat: null, stack: 0, sittingOut: false,
+        id, token, name: this.uniqueName(name, id), connections: 0, seat: null, stack: 0, sittingOut: false, blindDue: false, postBlind: false,
         timeouts: 0, buyIns: 0, cashOuts: 0, banned: false, standQueued: false, kickQueued: false, adjustQueued: 0, busted: false,
         avatar: avatar ?? null, timerSec: null, place: null,
       };
@@ -617,6 +626,8 @@ export class Table {
     p.sittingOut = false;
     p.busted = false;
     p.timeouts = 0;
+    p.blindDue = !tour && this.handCounter > 0;
+    p.postBlind = false;
     this.clearQueued(p);
     this.addLog(`${p.name} sat in seat ${seat + 1} with ${this.m(buyIn)}`);
     this.changed();
@@ -646,7 +657,17 @@ export class Table {
     p.busted = false;
     if (p.sittingOut !== sittingOut) this.addLog(`${p.name} is ${sittingOut ? "sitting out" : "back in"}`);
     p.sittingOut = sittingOut;
+    if (sittingOut) p.postBlind = false;
     this.settleIfActor(p);
+    this.changed();
+  }
+
+  choosePostBlind(playerId: string, post: boolean): void {
+    const p = this.get(playerId);
+    if (p.seat === null || !p.blindDue) throw new UserError("You don’t owe a blind.");
+    if (post && (p.sittingOut || p.stack <= 0)) throw new UserError("Sit in with chips first.");
+    if (p.postBlind !== post) this.addLog(post ? `${p.name} will post ${this.m(this.currentBlinds().bigBlind)} to play the next hand` : `${p.name} will wait for the big blind`);
+    p.postBlind = post;
     this.changed();
   }
 
@@ -674,6 +695,8 @@ export class Table {
     p.sittingOut = false;
     p.busted = false;
     p.timeouts = 0;
+    p.blindDue = false;
+    p.postBlind = false;
     this.clearQueued(p);
   }
 
@@ -948,6 +971,7 @@ export class Table {
     if (p.sittingOut !== sittingOut) this.addLog(`The dealer marked ${p.name} as ${sittingOut ? "sitting out" : "back in"}`);
     if (!sittingOut) p.timeouts = 0;
     p.sittingOut = sittingOut;
+    if (sittingOut) p.postBlind = false;
     this.settleIfActor(p);
     this.changed();
   }
@@ -1226,11 +1250,9 @@ export class Table {
     if (this.budgetNotice !== null) return;
     if (this.status !== "playing" || this.handOpen()) return;
     if (this.isTourney() && this.t?.status !== "running") return;
-    const el = this.eligible();
-    if (el.length < 2) return;
+    if (this.eligible().length < 2) return;
     this.applyPending();
-    const seatsAsc = el.map((p) => p.seat!);
-    const button = seatsAsc.find((s) => s > this.buttonSeat) ?? seatsAsc[0]!;
+    const { el, button, posts } = this.pickDealt(this.eligible());
     this.buttonSeat = button;
     const blinds = this.currentBlinds();
     const handNumber = this.handCounter + 1;
@@ -1264,6 +1286,7 @@ export class Table {
       bigBlind: blinds.bigBlind,
       deck,
       ...(fair ? { fair: { key: serverSeed, material } } : {}),
+      ...(posts.length ? { extraPosts: posts } : {}),
       ...extra,
     } as StartHandInput);
     this.hand = {
@@ -1275,6 +1298,43 @@ export class Table {
     if (fair) this.addLog(`Shuffle seeds: ${Object.keys(clientSeeds).length} of ${el.length} players`);
     if (isStud) this.addLog(`Antes: ${this.m(this.config.stud.ante)} each`);
     this.settle();
+  }
+
+  /**
+   * Who gets dealt in. In cash board games a player with blindDue waits until the big blind reaches them, unless
+   * they chose to post one. The button and small blind only land on players already in; the big blind goes to the
+   * first waiting player after the small blind, if one comes before the next player who is in.
+   */
+  private pickDealt(candidates: Player[]): { el: Player[]; button: number; posts: string[] } {
+    const next = (from: Player[]) => from.map((p) => p.seat!).find((s) => s > this.buttonSeat) ?? from[0]!.seat!;
+    const cash = !this.isTourney() && VARIANTS[this.config.variant].kind !== "stud";
+    const active = candidates.filter((p) => !p.blindDue || p.postBlind);
+    if (!cash || active.length < 2) {
+      // Nobody owes anything when there is no game for the blind to have passed.
+      for (const p of candidates) { p.blindDue = false; p.postBlind = false; }
+      return { el: candidates, button: next(candidates), posts: [] };
+    }
+    // Only players who owe nothing can hold the button; a player posting to come in is dealt in around it.
+    const established = active.filter((p) => !p.blindDue);
+    const button = next(established.length ? established : active);
+    const b = active.findIndex((p) => p.seat === button);
+    const sb = active[(b + 1) % active.length]!;
+    const end = active[(b + 2) % active.length]!;
+    const clockwise = (seat: number, from: number) => (seat - from + this.config.maxSeats) % this.config.maxSeats;
+    const waiter = candidates
+      .filter((p) => !active.includes(p) && clockwise(p.seat!, sb.seat!) < clockwise(end.seat!, sb.seat!))
+      .sort((x, y) => clockwise(x.seat!, sb.seat!) - clockwise(y.seat!, sb.seat!))[0];
+    const el = candidates.filter((p) => active.includes(p) || p === waiter);
+    const posts = active.filter((p) => p.postBlind).map((p) => p.id);
+    for (const p of el) { p.blindDue = false; p.postBlind = false; }
+    // Anyone away between this hand's blinds has now missed the big blind.
+    const i = el.findIndex((p) => p.seat === button);
+    const realSb = el.length === 2 ? button : el[(i + 1) % el.length]!.seat!;
+    const realBb = el[(i + (el.length === 2 ? 1 : 2)) % el.length]!.seat!;
+    for (const p of this.seated()) {
+      if (p.sittingOut && clockwise(p.seat!, realSb) < clockwise(realBb, realSb)) p.blindDue = true;
+    }
+    return { el, button, posts };
   }
 
   private finishHand(): void {
@@ -1382,6 +1442,58 @@ export class Table {
     }
     this.eliminate(h.startStacks);
     this.applyPending();
+    this.applySeatShuffle();
+  }
+
+  hostShuffleSeats(playerId: string): void {
+    this.asHost(playerId, "shuffleSeats", (host, rec) => this.doShuffleSeats(host, rec));
+  }
+
+  private doShuffleSeats(host: Player, rec: Rec): void {
+    if (this.seated().length < 2) throw new UserError("Seat at least two players first.");
+    if (this.handOpen()) {
+      if (this.seatShuffleBy !== null) throw new UserError("The seats are already set to shuffle after this hand.");
+      this.seatShuffleBy = host.id;
+      rec(`${host.name} asked to shuffle the seats after this hand`, { queued: true });
+      this.addLog("Dealer will shuffle the seats after this hand");
+    } else {
+      const seats = this.shuffleSeats();
+      rec(`${host.name} shuffled the seats: ${this.seatList(seats)}`, { queued: false, seats });
+      this.addLog(`Dealer shuffled the seats: ${this.seatList(seats)}`);
+    }
+    this.changed();
+  }
+
+  private applySeatShuffle(): void {
+    const by = this.seatShuffleBy;
+    if (by === null) return;
+    this.seatShuffleBy = null;
+    if (this.seated().length < 2) return;
+    const seats = this.shuffleSeats();
+    const who = this.players.get(by) ?? this.players.get(this.hostId ?? "");
+    if (who) this.appendDealer(who, "seatShuffleApplied", `The queued seat shuffle was applied: ${this.seatList(seats)}`, { queued: true, seats });
+    this.addLog(`Dealer shuffled the seats: ${this.seatList(seats)}`);
+  }
+
+  /** Uniform random reseating among the occupied seats, redrawn if nobody would move. The button stays with its seat. */
+  private shuffleSeats(): { playerId: string; name: string; from: number; to: number }[] {
+    const players = this.seated();
+    const open = players.map((p) => p.seat!);
+    const to = open.slice();
+    do {
+      for (let i = to.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1);
+        [to[i], to[j]] = [to[j]!, to[i]!];
+      }
+    } while (to.every((s, i) => s === open[i]));
+    return players.map((p, i) => {
+      p.seat = to[i]!;
+      return { playerId: p.id, name: p.name, from: open[i]!, to: to[i]! };
+    });
+  }
+
+  private seatList(seats: { name: string; to: number }[]): string {
+    return seats.slice().sort((a, b) => a.to - b.to).map((s) => `seat ${s.to + 1} ${s.name}`).join(", ");
   }
 
   private applyTransfers(): void {
@@ -1830,6 +1942,7 @@ export class Table {
       const revealed = !!h?.state.declarationsRevealed;
       seats[p.seat!] = {
         seat: p.seat!,
+        waitingForBlind: p.blindDue && !p.postBlind && !p.sittingOut,
         playerId: p.id,
         name: p.name,
         stack: hp && !done ? hp.stack : p.stack,
@@ -1876,7 +1989,7 @@ export class Table {
     return {
       tableId: this.tableId,
       hostPlayerId: this.hostId,
-      you: { playerId: me.id, seat: me.seat, isHost: this.hostId === me.id },
+      you: { playerId: me.id, seat: me.seat, isHost: this.hostId === me.id, blindDue: me.blindDue, postBlind: me.postBlind },
       config: cloneConfig(this.config),
       pendingConfig: this.pendingConfig ? cloneConfig(this.pendingConfig) : null,
       status: this.budgetNotice !== null && this.status === "playing" ? "paused" : this.status,
@@ -1889,6 +2002,7 @@ export class Table {
       pendingAward: this.pendingAward ? { ...this.pendingAward, candidatePlayerIds: [...this.pendingAward.candidatePlayerIds], suggested: this.pendingAward.suggested.map((x) => ({ ...x })) } : null,
       handList: this.handList(),
       canExtend: this.canExtendNow(me),
+      seatShufflePending: this.seatShuffleBy !== null,
       tournament: this.tournamentView(),
       siteNotice: this.budgetNotice,
       fairness: this.deckSource ? null : { nextHandNumber: this.handCounter + 1, serverSeedHash: seedHash(this.nextServerSeed) },

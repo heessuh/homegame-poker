@@ -17,7 +17,7 @@ import { Avatar, AvatarPicker, Modal, MoneyInput, Wordmark, loadAvatar, saveAvat
 import { newClientSeed, rememberSeed } from "./fairness";
 import { FairWatch } from "./FairBanner";
 import { BuildInfo } from "./BuildInfo";
-import { fmt, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
+import { fmt, isStud, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
 
@@ -278,6 +278,14 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
           <ActionBar view={view} onAction={(a) => send("action", a)} onExtend={() => send("extendTime")} />
           {me && !isTourney && me.stack === 0 && !me.inHand && (
             <p className="note busted" role="status">Out of chips — ask the dealer for a rebuy.</p>
+          )}
+          {me && view.you.blindDue && !me.sittingOut && !isTourney && !isStud(cfg) && (
+            <div className="blindchoice" role="status">
+              <span>{view.you.postBlind ? `You’ll post ${fmt(cfg.bigBlind)} and play the next hand.` : "You’ll be dealt in when the big blind reaches you."}</span>
+              <button className="btn small" onClick={() => send("postBlind", { post: !view.you.postBlind })}>
+                {view.you.postBlind ? "Wait instead" : `Post ${fmt(cfg.bigBlind)} and play next hand`}
+              </button>
+            </div>
           )}
           {me && (
             <div className="controls">

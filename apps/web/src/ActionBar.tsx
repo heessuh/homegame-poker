@@ -141,7 +141,6 @@ function ActionBarInner({ view, legal, onAction }: { view: TableView; legal: Leg
       {spread && max! > 0 && (
         <p className="hint">Max {isBet ? "bet" : "raise"} +{fmtBet(max! - highBet)}</p>
       )}
-      <p className="keys" aria-hidden="true"><kbd>F</kbd> fold · <kbd>C</kbd> check / call{canRaise ? <> · <kbd>R</kbd> raise</> : null}</p>
     </div>
   );
 }

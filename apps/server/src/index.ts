@@ -278,6 +278,13 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       table.stand(playerId);
     }));
 
+    on("postBlind", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      if (typeof p.post !== "boolean") throw new UserError("Invalid request.");
+      table.choosePostBlind(playerId, p.post);
+    }));
+
     on("sitOut", handle((raw) => {
       const p = obj(raw);
       const { table, playerId } = ctx();
@@ -421,6 +428,11 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       const { table, playerId } = ctx();
       if (typeof p.playerId !== "string") throw new UserError("Invalid request.");
       table.hostAdjustStack(playerId, p.playerId, int(p.delta, "Adjustment"));
+    }));
+
+    on("host:shuffleSeats", handle(() => {
+      const { table, playerId } = ctx();
+      table.hostShuffleSeats(playerId);
     }));
 
     on("host:saveDefaults", handle(() => {

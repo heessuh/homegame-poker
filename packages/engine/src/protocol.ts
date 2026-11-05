@@ -29,7 +29,7 @@ export interface TableConfig {
 
 /**
  * Spread-limit betting used by the house games. A bet or raise INCREMENT must be between minBet and maxBet;
- * with raiseMustExceed, each raise increment must be strictly larger than the previous bet/raise increment
+ * with raiseMustExceed, each raise increment must be at least the previous bet/raise increment
  * on that street (preflop, the big blind counts as the opening bet). At most maxRaises raises per round,
  * heads-up included. All-in for less is always allowed and does not reopen betting if incomplete.
  */
@@ -51,7 +51,7 @@ export interface StudStakes {
   maxBetLastRound: number; // largest bet or raise increment in the final round (after the second exchange)
   downExchangeCost: number; // paid into the pot to swap a face-down card (face-up swaps are free)
   maxRaises: number; // raises allowed per round after the opening bet, heads-up included
-  raiseMustExceed: boolean; // each raise increment must be larger than the previous one
+  raiseMustExceed: boolean; // each raise increment must be at least the previous one
   /** true: players secretly declare High, Low or Both before the showdown. false: cards speak. */
   declare: boolean;
 }
@@ -156,6 +156,8 @@ export type Phase =
 
 export interface SeatView {
   seat: number;
+  /** Not dealt in until the big blind reaches this player. */
+  waitingForBlind: boolean;
   playerId: string;
   name: string;
   stack: number;
@@ -318,7 +320,15 @@ export interface HandListItem {
 export interface TableView {
   tableId: string;
   hostPlayerId: string | null;
-  you: { playerId: string; seat: number | null; isHost: boolean };
+  you: {
+    playerId: string;
+    seat: number | null;
+    isHost: boolean;
+    /** Cash board games: you missed the big blind, so you wait for it to reach you, or post one to play sooner. */
+    blindDue: boolean;
+    /** You chose to post a big blind and play the next hand. */
+    postBlind: boolean;
+  };
   config: TableConfig;
   /** Applies at the start of the next hand. */
   pendingConfig: TableConfig | null;
@@ -336,6 +346,8 @@ export interface TableView {
   handList: HandListItem[];
   /** True when the viewer is to act, has a running timer, and hasn't used this turn's extension. */
   canExtend: boolean;
+  /** The dealer asked to shuffle the seats; it happens when the current hand ends. */
+  seatShufflePending: boolean;
   tournament: TournamentView | null; // null in cash mode
   /** Site-wide message (e.g. the monthly budget has been reached); null normally. */
   siteNotice: string | null;
@@ -349,6 +361,7 @@ export interface ClientToServerEvents {
   setAvatar: (p: { avatar: string | null }) => void;
   sit: (p: { seat: number; buyIn: number }) => void;
   stand: () => void; // cash out at end of current hand
+  postBlind: (p: { post: boolean }) => void;
   sitOut: (p: { sittingOut: boolean }) => void;
   /** Ask for extensionSec more seconds on your own clock (once per turn). */
   extendTime: () => void;
@@ -363,6 +376,7 @@ export interface ClientToServerEvents {
   "host:pause": (p: { paused: boolean }) => void;
   "host:config": (p: Partial<TableConfig>) => void;
   "host:kick": (p: { playerId: string }) => void;
+  "host:shuffleSeats": () => void;
   "host:sitOut": (p: { playerId: string; sittingOut: boolean }) => void; // dealer marks a player away / back
   /** Rebuys are dealer-only: a positive delta is recorded as a buy-in (and sits a busted player back in), negative as a cash-out. Between hands; queued during a hand. */
   "host:adjustStack": (p: { playerId: string; delta: number }) => void;

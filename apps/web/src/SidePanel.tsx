@@ -307,6 +307,9 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         {view.status === "waiting" && <button className="btn call" onClick={() => send("host:start")}>Start game</button>}
         {view.status === "playing" && <button className="btn" onClick={() => send("host:pause", { paused: true })}>Pause</button>}
         {view.status === "paused" && <button className="btn call" onClick={() => send("host:pause", { paused: false })}>Resume</button>}
+        <button className="btn" disabled={view.seatShufflePending || view.seats.filter(Boolean).length < 2} onClick={() => send("host:shuffleSeats")}>
+          {view.seatShufflePending ? "Seats shuffle after this hand" : "Shuffle seats"}
+        </button>
       </div>
 
       <h4>Settings</h4>
@@ -339,8 +342,8 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
                 <label>Min bet<MoneyInput dollars={dol} value={hl.minBet} min={1} onChange={(n) => setHl({ minBet: n })} label="House limit min bet" /></label>
                 <label>Max bet per bet/raise<MoneyInput dollars={dol} value={hl.maxBet} min={1} onChange={(n) => setHl({ maxBet: n })} label="House limit max bet" /></label>
                 <label>Max raises per round<input type="number" min={0} value={hl.maxRaises} onChange={(e) => setHl({ maxRaises: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} /></label>
-                <label className="check"><input type="checkbox" checked={hl.raiseMustExceed} onChange={(e) => setHl({ raiseMustExceed: e.target.checked })} />Each raise must be bigger than the last</label>
-                <p className="muted small">Each bet or raise can be up to {fmtWith(hl.maxBet, dol, true)}; at most {hl.maxRaises} raises per round{hl.raiseMustExceed ? "; each raise must be more than the previous bet or raise" : ""}.</p>
+                <label className="check"><input type="checkbox" checked={hl.raiseMustExceed} onChange={(e) => setHl({ raiseMustExceed: e.target.checked })} />Each raise must be at least the last one</label>
+                <p className="muted small">Each bet or raise can be up to {fmtWith(hl.maxBet, dol, true)}; at most {hl.maxRaises} raises per round{hl.raiseMustExceed ? "; each raise must be at least the previous bet or raise" : ""}.</p>
               </>
             )}
           </div>
@@ -354,7 +357,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
             <label>Max bet, last round<MoneyInput dollars={dol} value={studCfg.maxBetLastRound} min={1} onChange={setStudN("maxBetLastRound")} label="Max bet in the last round" /></label>
             <label>Face-down exchange cost<MoneyInput dollars={dol} value={studCfg.downExchangeCost} onChange={setStudN("downExchangeCost")} label="Face-down exchange cost" /></label>
             <label>Max raises per round<input type="number" min={0} value={studCfg.maxRaises} onChange={setStudInt("maxRaises")} /></label>
-            <label className="check full"><input type="checkbox" checked={studCfg.raiseMustExceed} onChange={(e) => setDraft({ ...draft, stud: { ...studCfg, raiseMustExceed: e.target.checked } })} />Each raise must be bigger than the last</label>
+            <label className="check full"><input type="checkbox" checked={studCfg.raiseMustExceed} onChange={(e) => setDraft({ ...draft, stud: { ...studCfg, raiseMustExceed: e.target.checked } })} />Each raise must be at least the last one</label>
             <label>Showdown
               <select value={studCfg.declare ? "declare" : "speak"} onChange={(e) => setDraft({ ...draft, stud: { ...studCfg, declare: e.target.value === "declare" } })}>
                 <option value="declare">Declare (High/Low/Both)</option>

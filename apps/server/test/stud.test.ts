@@ -285,7 +285,7 @@ describe("config: stud, house limit, money", () => {
     r.table.hostStart(r.ids[0]!);
     r.clock.advance(1000);
     const v = r.table.viewFor(actor(r)!);
-    expect(v.hand!.legal!.minRaiseTo).toBe(41);
+    expect(v.hand!.legal!.minRaiseTo).toBe(40);
     expect(v.hand!.legal!.maxRaiseTo).toBe(220);
 
     const t = rig(2, { ...base, mode: "tournament", houseLimit: { enabled: true, minBet: 20, maxBet: 200, maxRaises: 3, raiseMustExceed: true } });
@@ -308,7 +308,7 @@ describe("Omaha: house limit in cash games, pot limit in tournaments", () => {
     r.table.hostStart(r.ids[0]!);
     r.clock.advance(1000);
     const l = r.table.viewFor(actor(r)!).hand!.legal!;
-    expect(l.minRaiseTo).toBe(41);
+    expect(l.minRaiseTo).toBe(40); // the first raise is by the big blind: 20 + 20
     expect(l.maxRaiseTo).toBe(220);
   });
 

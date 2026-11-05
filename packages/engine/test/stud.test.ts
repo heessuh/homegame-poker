@@ -274,9 +274,9 @@ describe("spread-limit betting", () => {
       s = act(s, to(s), raise(cap));
       const l2 = legal(s, to(s))!;
       expect(l2.callAmount).toBe(cap);
-      // A maximum bet cannot be raised: the next raise would have to exceed it.
-      expect(l2.minRaiseTo).toBeNull();
-      expect(l2.maxRaiseTo).toBeNull();
+      // A maximum bet can be raised by exactly the maximum: the raise is offered at double (min = max).
+      expect(l2.minRaiseTo).toBe(cap * 2);
+      expect(l2.maxRaiseTo).toBe(cap * 2);
       while (s.phase === phase && s.stage === stage && !s.outcome) s = act(s, to(s), CALL);
     }
     s = playOut(s);
@@ -293,17 +293,17 @@ describe("spread-limit betting", () => {
     expect(() => act(s, to(s), raise(4))).not.toThrow();
   });
 
-  it("each raise must exceed the previous increment: after a bet of 2 the smallest raise is by 3", () => {
+  it("each raise must be at least the previous increment: after a bet of 2 the smallest raise is by 2 (to 4)", () => {
     let s = newStud({ stacks: THREE, button: 2, stakes: { maxBet: 6 } });
     s = act(s, to(s), raise(2));
     const b = to(s);
     const l = legal(s, b)!;
-    expect(l.minRaiseTo).toBe(5);
+    expect(l.minRaiseTo).toBe(4);
     expect(l.maxRaiseTo).toBe(8);
-    expect(() => act(s, b, raise(4))).toThrow();
-    s = act(s, b, raise(5));
-    expect(legal(s, to(s))!.minRaiseTo).toBe(9); // previous increment 3 -> at least 4
-    expect(legal(s, to(s))!.maxRaiseTo).toBe(11);
+    expect(() => act(s, b, raise(3))).toThrow();
+    s = act(s, b, raise(4));
+    expect(legal(s, to(s))!.minRaiseTo).toBe(6); // previous increment 2 -> at least 2 more
+    expect(legal(s, to(s))!.maxRaiseTo).toBe(10);
   });
 
   it("lastAction strings read Bet, Raise to, Call, Check, Fold", () => {
@@ -378,7 +378,7 @@ describe("spread-limit betting", () => {
     expect(player(s, 1).lastAction).toBe("All-in 3");
     expect(s.raises).toBe(0); // not counted as a raise
     expect(s.lastRaiseSize).toBe(2); // previous increment unchanged
-    expect(legal(s, 2)!.minRaiseTo).toBe(6); // 3 + (2+1)
+    expect(legal(s, 2)!.minRaiseTo).toBe(5); // 3 + 2 (the incomplete raise does not change the increment)
     s = act(s, 2, CALL);
     expect(s.toActSeat).toBe(0);
     const l0 = legal(s, 0)!;
@@ -419,15 +419,15 @@ describe("5-Murder with the real cent stakes (DEFAULT_STUD)", () => {
     expect(() => act(s, to(s), raise(100))).not.toThrow();
   });
 
-  it("a bet of 20 must be raised by at least 21", () => {
+  it("a bet of 20 can be raised by at least 20 (to 40)", () => {
     let s = cents();
     s = act(s, to(s), raise(20));
     const l = legal(s, to(s))!;
-    expect(l.minRaiseTo).toBe(41);
+    expect(l.minRaiseTo).toBe(40);
     expect(l.maxRaiseTo).toBe(120);
   });
 
-  it("the final round allows up to 200 and nobody can raise a 200 bet; a down swap costs 50", () => {
+  it("the final round allows up to 200; a 200 bet can be raised to exactly 400, then the raise cap stops it; a down swap costs 50", () => {
     let s = runTo(cents(), "draw1", "exchange");
     expect(legal(s, to(s))!.exchange!.downCost).toBe(50);
     const who = to(s);
@@ -440,8 +440,15 @@ describe("5-Murder with the real cent stakes (DEFAULT_STUD)", () => {
     expect(l.maxRaiseTo).toBe(200);
     s = act(s, to(s), raise(200));
     const r = legal(s, to(s))!;
-    expect(r.minRaiseTo).toBeNull();
-    expect(r.maxRaiseTo).toBeNull();
+    expect(r.minRaiseTo).toBe(400);
+    expect(r.maxRaiseTo).toBe(400);
+    s = act(s, to(s), raise(400)); // raise 1
+    expect(legal(s, to(s))!.minRaiseTo).toBe(600);
+    s = act(s, to(s), raise(600)); // raise 2
+    s = act(s, to(s), raise(800)); // raise 3 (DEFAULT_STUD maxRaises)
+    const capped = legal(s, to(s))!;
+    expect(capped.minRaiseTo).toBeNull();
+    expect(capped.maxRaiseTo).toBeNull();
     s = playOut(s);
     done(s);
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { verifyDeck } from "@homegame/engine";
-import { UserError } from "../src/table.js";
-import { actor, checkDown, foldAround, rig, seatAll } from "./helpers.js";
+import { freshDeck, verifyDeck } from "@homegame/engine";
+import { Table, UserError, type TableSnapshot } from "../src/table.js";
+import { actor, checkDown, FakeClock, foldAround, rig, seatAll, type Rig } from "./helpers.js";
 
 describe("identity", () => {
   it("makes the first joiner host and never exposes tokens", () => {
@@ -366,5 +366,106 @@ describe("host handoff", () => {
     const v = r.table.viewFor(r.ids[1]!);
     expect(v.hostPlayerId).toBe(r.ids[0]);
     expect(v.log.some((l) => l.includes("is now the host"))).toBe(false);
+  });
+});
+
+describe("dealer shuffles seats", () => {
+  /** playerId -> seat index, for everyone seated. */
+  const seatMap = (r: Rig): Map<string, number> => {
+    const m = new Map<string, number>();
+    r.table.viewFor(r.ids[0]!).seats.forEach((s, i) => { if (s) m.set(s.playerId, i); });
+    return m;
+  };
+  /** playerId -> stack, for everyone seated. */
+  const stackMap = (r: Rig): Map<string, number> => {
+    const m = new Map<string, number>();
+    r.table.viewFor(r.ids[0]!).seats.forEach((s) => { if (s) m.set(s.playerId, s.stack); });
+    return m;
+  };
+  const shuffleEntries = (r: Rig) => r.table.getDealerLog().filter((e) => e.action === "shuffleSeats");
+
+  it("between hands: reseats everyone into the same seats, keeps stacks, and logs each move", () => {
+    const r = rig(4);
+    seatAll(r, undefined, 100);
+    const before = seatMap(r);
+    const stacks = stackMap(r);
+    r.table.hostShuffleSeats(r.ids[0]!);
+    const after = seatMap(r);
+    expect([...after.values()].sort()).toEqual([0, 1, 2, 3]);
+    expect(after.size).toBe(4);
+    expect(stackMap(r)).toEqual(stacks);
+    expect([...after.keys()].some((id) => after.get(id) !== before.get(id))).toBe(true);
+    const entries = shuffleEntries(r);
+    expect(entries).toHaveLength(1);
+    const moves = entries[0]!.details.seats as Array<{ playerId: string; from: number; to: number }>;
+    expect(moves).toHaveLength(4);
+    for (const m of moves) {
+      expect(m.from).toBe(before.get(m.playerId));
+      expect(m.to).toBe(after.get(m.playerId));
+    }
+  });
+
+  it("a non-host is refused and nothing changes", () => {
+    const r = rig(3);
+    seatAll(r);
+    const before = seatMap(r);
+    expect(() => r.table.hostShuffleSeats(r.ids[1]!)).toThrow(UserError);
+    expect(seatMap(r)).toEqual(before);
+    expect(shuffleEntries(r)).toHaveLength(0);
+    expect(r.table.viewFor(r.ids[0]!).seatShufflePending).toBe(false);
+  });
+
+  it("refuses unless at least two players are seated", () => {
+    const r = rig(2);
+    expect(() => r.table.hostShuffleSeats(r.ids[0]!)).toThrow(UserError);
+    r.table.sit(r.ids[0]!, 0, 100);
+    expect(() => r.table.hostShuffleSeats(r.ids[0]!)).toThrow(UserError);
+    expect(seatMap(r)).toEqual(new Map([[r.ids[0]!, 0]]));
+    expect(shuffleEntries(r)).toHaveLength(0);
+  });
+
+  it("during a hand: keeps seats, queues the shuffle, refuses a second request, and applies it when the hand ends", () => {
+    const r = rig(3);
+    seatAll(r);
+    const host = r.ids[0]!;
+    r.table.hostStart(host);
+    r.clock.advance(1000);
+    const before = seatMap(r);
+    r.table.hostShuffleSeats(host);
+    expect(seatMap(r)).toEqual(before);
+    expect(r.table.viewFor(host).seatShufflePending).toBe(true);
+    expect(() => r.table.hostShuffleSeats(host)).toThrow(UserError);
+    expect(shuffleEntries(r)).toHaveLength(1); // the queued request only
+    foldAround(r);
+    const after = seatMap(r);
+    expect(after).not.toEqual(before);
+    expect([...after.values()].sort()).toEqual([0, 1, 2]);
+    expect(r.table.viewFor(host).seatShufflePending).toBe(false);
+    expect(r.table.getDealerLog().some((e) => e.action === "seatShuffleApplied")).toBe(true);
+  });
+
+  it("a queued shuffle survives a snapshot and restore, and is applied when the restored hand ends", () => {
+    const r = rig(3);
+    seatAll(r);
+    r.table.hostStart(r.ids[0]!);
+    r.clock.advance(1000);
+    const before = seatMap(r);
+    r.table.hostShuffleSeats(r.ids[0]!);
+    const snap = JSON.parse(JSON.stringify(r.table.snapshot())) as TableSnapshot;
+    expect(snap.seatShuffleBy).toBe(r.ids[0]);
+
+    const clock = new FakeClock();
+    clock.t = 5_000_000;
+    const table = new Table({
+      tableId: snap.tableId, now: clock.now, scheduler: clock, deckSource: () => freshDeck(), onChange: () => undefined, snapshot: snap,
+    });
+    table.resume();
+    const restored: Rig = { clock, table, ids: r.ids };
+    expect(table.viewFor(r.ids[0]!).seatShufflePending).toBe(true);
+    expect(seatMap(restored)).toEqual(before);
+    foldAround(restored);
+    expect(seatMap(restored)).not.toEqual(before);
+    expect(table.viewFor(r.ids[0]!).seatShufflePending).toBe(false);
+    expect(table.getDealerLog().some((e) => e.action === "seatShuffleApplied")).toBe(true);
   });
 });

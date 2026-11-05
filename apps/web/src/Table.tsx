@@ -236,6 +236,7 @@ function SeatBlock(props: {
           {s.allIn && <span className="tag allin">All-in</span>}
           {s.folded && <span className="tag fold">Fold</span>}
           {s.sittingOut && <span className="tag">Away</span>}
+          {s.waitingForBlind && <span className="tag">Waits for BB</span>}
           {s.timeLimitSec !== null && <span className="tag timelim">⏱ {s.timeLimitSec === 0 ? "off" : `${s.timeLimitSec}s`}</span>}
         </div>
         {wins ? (

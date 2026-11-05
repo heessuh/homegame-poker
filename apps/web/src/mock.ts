@@ -21,7 +21,7 @@ export const FIXTURE_LABELS: Record<FixtureId, string> = {
 function seat(i: number, name: string, stack: number, extra: Partial<SeatView> = {}): SeatView {
   const holeCount = extra.holeCards ? extra.holeCards.length : extra.inHand === false ? 0 : 2;
   return {
-    seat: i, playerId: `p${i}`, name, stack, bet: 0, inHand: true, folded: false, allIn: false,
+    seat: i, waitingForBlind: false, playerId: `p${i}`, name, stack, bet: 0, inHand: true, folded: false, allIn: false,
     sittingOut: false, connected: true, isButton: false, avatar: null, timeLimitSec: null, holeCards: null, holeCount, upCards: [], declared: null, hasDeclared: false, lastAction: null, ...extra,
   };
 }
@@ -44,7 +44,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     ...DEFAULT_CONFIG, variant: "plo5", smallBlind: 10, bigBlind: 20, maxSeats: 6, actionTimeoutSec: 30, minBuyIn: 500, maxBuyIn: 5000,
   };
   const plo: TableView = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true },
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false },
     config: ploCfg, pendingConfig: null, status: "playing",
     seats: [
       seat(0, "You", 2450, { avatar: "🐼", holeCards: cardsOf("As Ks Qd Jd Th"), bet: 0 }),
@@ -69,7 +69,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p3", name: "Okonkwo", buyIns: 2000, cashOuts: 0, stack: 2150, net: 150 },
       { playerId: "p4", name: "Priya", buyIns: 4000, cashOuts: 0, stack: 4800, net: 800 },
     ],
-    pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], canExtend: false, tournament: null,
+    pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], seatShufflePending: false, canExtend: false, tournament: null,
     log: [
       "Hand #12 started (5-Card Pot-Limit Omaha High)",
       "Priya posts the small blind $0.10",
@@ -85,7 +85,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
 
   const nlheCfg: TableConfig = { ...DEFAULT_CONFIG, maxSeats: 6 };
   const nlhe: TableView = {
-    tableId: "demo", hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false },
+    tableId: "demo", hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false, blindDue: false, postBlind: false },
     config: nlheCfg, pendingConfig: null, status: "playing",
     seats: [
       null,
@@ -111,7 +111,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { handNumber: 30, variant: "nlhe", endedAt: now - 120000, pot: 640, result: "Alice $6.40" },
       { handNumber: 29, variant: "nlhe", endedAt: now - 300000, pot: 180, result: "Chen $1.80" },
     ],
-    canExtend: true,
+    seatShufflePending: false, canExtend: true,
     ledger: [
       { playerId: "p1", name: "Alice", buyIns: 2000, cashOuts: 0, stack: 2120, net: 120 },
       { playerId: "p2", name: "You", buyIns: 1000, cashOuts: 0, stack: 980, net: -20 },
@@ -123,7 +123,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   };
 
   const waiting: TableView = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true },
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false },
     config: { ...DEFAULT_CONFIG, maxSeats: 9 },
     pendingConfig: { ...DEFAULT_CONFIG, maxSeats: 9, variant: "plo4", bigBlind: 40, smallBlind: 20 },
     status: "waiting",
@@ -141,7 +141,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p2", name: "Dana", buyIns: 2000, cashOuts: 0, stack: 2000, net: 0 },
       { playerId: "p5", name: "Eli", buyIns: 1000, cashOuts: 0, stack: 1000, net: 0 },
     ],
-    pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], canExtend: false, tournament: null,
+    pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], seatShufflePending: false, canExtend: false, tournament: null,
     log: ["Table created", "Dana sat at seat 3 with $20", "Eli sat at seat 6 with $10"],
   };
 
@@ -152,7 +152,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     actionTimeoutSec: 30, tournament: TOURNAMENT_PRESETS.standard.config, money: "chips",
   };
   const tourney: TableView = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true },
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false },
     config: tCfg, pendingConfig: null, status: "playing",
     seats: [
       seat(0, "You", 6200, { avatar: "🏆", holeCards: cardsOf("Ah Kh Qs Jd"), bet: 0 }),
@@ -177,7 +177,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       { playerId: "p4", name: "Priya", buyIns: 5000, cashOuts: 0, stack: 4400, net: -600 },
     ],
     log: ["Level 5 started: 300/600", "Okonkwo is eliminated in 6th place", "Sam is eliminated in 5th place", "Hand #58 started", "Marta raises to 400"],
-    pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], canExtend: false,
+    pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], seatShufflePending: false, canExtend: false,
     tournament: {
       status: "running", levelIndex: 4, level: levels[4], nextLevel: levels[5], levelEndsAt: now + 7 * 60000 + 23000,
       levelRemainingMs: 7 * 60000 + 23000, startingStack: 5000, lateRegOpen: false, playersLeft: 4,
@@ -195,7 +195,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   // Dealer decides: hand over, pot waiting for the host (viewer).
   const award: TableView = {
     ...nlhe,
-    tableId: "demo", hostPlayerId: "p2", you: { playerId: "p2", seat: 2, isHost: true },
+    tableId: "demo", hostPlayerId: "p2", you: { playerId: "p2", seat: 2, isHost: true, blindDue: false, postBlind: false },
     config: { ...nlheCfg, awardMode: "host" },
     hand: {
       handNumber: 31, phase: "showdown", board: cardsOf("Qs 9d 4c Kh 2s"),
@@ -211,7 +211,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   // Same pending award, but the viewer (Bo's seat 2 -> "You") is a plain player; the dealer is Alice.
   const awardViewer: TableView = {
     ...award,
-    hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false },
+    hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false, blindDue: false, postBlind: false },
     hand: { ...award.hand!, winners: [{ playerId: "p4", amount: 2460, potIndex: 0, half: "whole", handName: "Three of a kind, Nines" }] },
   };
 
@@ -246,8 +246,8 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     stage: "bet", toActSeat: 0, actionDeadline: now + 20000, legal: null, deckHash, winners: null, ...over,
   });
   const m5Base = {
-    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true }, config: m5Cfg, pendingConfig: null,
-    status: "playing" as const, lastHand: null, ledger: m5Ledger, pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], canExtend: false, tournament: null,
+    tableId: "demo", hostPlayerId: "p0", you: { playerId: "p0", seat: 0, isHost: true, blindDue: false, postBlind: false }, config: m5Cfg, pendingConfig: null,
+    status: "playing" as const, lastHand: null, ledger: m5Ledger, pendingAward: null, siteNotice: null, dealerLog: DL0, fairness: null, handList: [], seatShufflePending: false, canExtend: false, tournament: null,
   };
   const noBet = { canFold: false, canCheck: false, callAmount: 0, minRaiseTo: null, maxRaiseTo: null };
 

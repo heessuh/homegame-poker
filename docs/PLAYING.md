@@ -75,6 +75,10 @@ By default the dealer awards every pot. At showdown, everyone sees the winnings 
 
 The host picks the game and the stakes.
 
+## Joining a game in progress
+
+In Hold’em and Omaha cash games, if you sit down mid-game or miss the big blind while sitting out, you’re dealt in when the big blind reaches you. To play sooner, tap **Post and play next hand** to post one big blind. It counts toward your bet.
+
 ## Tournaments
 
 If the host runs a tournament instead of a cash game:

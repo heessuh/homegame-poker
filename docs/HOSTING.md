@@ -49,6 +49,10 @@ Under **Players** you can see everyone seated with their stack.
 
 Every buy-in, rebuy, host adjustment, and cash-out is recorded in the **Ledger** tab, so you can settle up at the end of the night. Everything you do as host also goes in the dealer log, which every player can see and which their browsers check for tampering.
 
+## Shuffle seats
+
+**Shuffle seats** in the **Host** tab reseats everyone at random among the occupied seats. Open seats stay open, and at least one player always moves. During a hand, the shuffle waits until the hand ends. The dealer button stays at its seat, so it moves on to the next seat as usual. Every shuffle, with the new seating, is recorded in the dealer log.
+
 ## Pot awarding
 
 Under **Settings**, **Pot awarding** has two modes:
