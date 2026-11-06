@@ -245,7 +245,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
         socket.emit("error", { message: "Something went wrong on the server." });
       }
     };
-    // At most 60 messages per 10 seconds per connection, and 12 for the heavy history lookups.
+    // At most 200 messages per 10 seconds per connection, and 60 for the heavy history lookups.
     const sent: number[] = [];
     const heavySent: number[] = [];
     socket.use(([ev], next) => {
@@ -256,9 +256,9 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       if (ev === "getSessionReview" || ev === "getHand" || ev === "getRngAudit" || ev === "getDealerLog") {
         while (heavySent.length && t - heavySent[0]! > 10_000) heavySent.shift();
         heavySent.push(t);
-        heavy = heavySent.length > 12;
+        heavy = heavySent.length > 60;
       }
-      if (sent.length > 60 || heavy) return next(new Error("Too many requests. Slow down for a moment."));
+      if (sent.length > 200 || heavy) return next(new Error("Too many requests. Slow down for a moment."));
       next();
     });
     /** Wraps a handler: arguments are untrusted, errors are reported to this socket only. */
