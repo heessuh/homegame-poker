@@ -29,9 +29,9 @@ In the **Host** tab, under **Settings**, you can change:
 - **Action timer**: seconds per action, or 0 to turn it off. Allowed values are 0 or 5 to 300.
 - **Player extension**: how many seconds a player gets when they tap **+15s** on their timer. Default 15; 0 turns it off.
 - **Min buy-in** and **Max buy-in**.
-- **Pot awarding**: **Dealer decides** (the default) or **Automatic** (see below).
+- **Pot awarding**: **Automatic** (the default) or **Dealer decides** (see below).
 
-Click **Save as house defaults** to make this table’s settings (house limits, 5-Murder stakes, timers, buy-ins, and game) the starting point for new tables.
+Click **Save as house defaults** to make this table’s settings (house limits, 5-Murder stakes, timers, buy-ins, and game) the starting point for the new tables **you** create from this device. Defaults are kept per host: they never change the tables other people create.
 
 Click **Apply settings** to save. If a hand is in progress, changes wait and apply at the start of the next hand; the panel shows “Pending changes apply next hand.” Changes that would seat someone in a seat you’re removing are refused until that player stands up.
 
@@ -57,8 +57,8 @@ Every buy-in, rebuy, host adjustment, and cash-out is recorded in the **Ledger**
 
 Under **Settings**, **Pot awarding** has two modes:
 
-- **Dealer decides** (the default): the dealer finalizes every pot. At showdown, everyone sees the winnings about to be awarded. The amounts start at what the cards say. Adjust them as you like, or click **Reset to suggested** to undo your edits. Then click **Next hand** to pay out and deal the next hand.
-- **Automatic**: the server awards each pot based on the cards.
+- **Automatic** (the default): the server awards each pot based on the cards.
+- **Dealer decides**: the dealer finalizes every pot. At showdown, everyone sees the winnings about to be awarded. The amounts start at what the cards say. If you change them, you must type a short reason, and the dealer log records the suggested payout, the actual payout and your reason. Click **Reset to suggested** to undo your edits, then **Next hand** to pay out and deal on.
 
 ## Tournaments
 
@@ -77,9 +77,13 @@ Betting in tournaments is standard: Omaha is pot-limit and Hold’em is no-limit
 
 Tournament chips never count in the cash ledger. Switching a table to tournament mode cashes everyone out in the ledger first. Switching back to cash leaves players with 0 chips and sitting out until you rebuy them. Each rebuy is recorded as a buy-in.
 
+## Locking the table
+
+In the **Host** tab, **Lock table** stops new people from joining. Players who already sat at the table can still reconnect. Click **Unlock table** to let new people in. Table links made by **Create a table** now use 12 random characters, so they are hard to guess; share the link only with your group.
+
 ## If the host goes offline
 
-If you lose your connection (for example, your phone sleeps), the table keeps going for 60 seconds. If you haven’t reconnected by then, host status passes to another connected player: a seated player first, in seat order, or anyone connected if no one is seated. The log says “<name> is now the host.”
+If you lose your connection (for example, your phone sleeps), the table keeps going for 60 seconds. If you haven’t reconnected by then, host status passes to the connected **seated** player in the lowest seat. Someone who is only watching never becomes host. If nobody seated is online, the table keeps the absent host until they return. The log says “<name> is now the host.”
 
 - If you reconnect within 60 seconds, you keep host status and nothing changes.
 - If you reconnect later, you don’t get host status back automatically. The new host can use the controls.

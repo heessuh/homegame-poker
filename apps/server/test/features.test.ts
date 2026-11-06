@@ -70,7 +70,7 @@ describe("dealer-awarded pots", () => {
     expect(() => r.table.hostAward(host, [{ playerId: other, amount: 1.5 }, { playerId: host, amount: pa.amount - 1.5 }])).toThrow(UserError);
     expect(view(r).pendingAward).not.toBeNull();
 
-    r.table.hostAward(host, [{ playerId: other, amount: pa.amount }]);
+    r.table.hostAward(host, [{ playerId: other, amount: pa.amount }], "test");
     const after = view(r);
     expect(after.pendingAward).toBeNull();
     expect(after.seats.filter(Boolean).reduce((n, s) => n + s!.stack, 0)).toBe(200);
@@ -96,7 +96,7 @@ describe("dealer-awarded pots", () => {
     expect(v.hand!.board).toHaveLength(5);
     expect(v.seats.find((s) => s && s.playerId !== host)!.holeCards).toHaveLength(2); // showdown cards still shown
     expect(v.log.some((l) => /wins \d+/.test(l))).toBe(false);
-    r.table.hostAward(host, [{ playerId: host, amount: 1 }, { playerId: other, amount: 3 }]);
+    r.table.hostAward(host, [{ playerId: host, amount: 1 }, { playerId: other, amount: 3 }], "test");
     const after = view(r);
     expect(after.log.some((l) => l === "Dealer awards 1 to P0, 3 to P1")).toBe(true);
     expect(after.lastHand!.winners.map((w) => w.amount).sort()).toEqual([1, 3]);
@@ -119,7 +119,7 @@ describe("dealer-awarded pots", () => {
     foldAround(r);
     expect(view(r).seats[1]).not.toBeNull();
     const amount = view(r).pendingAward!.amount;
-    r.table.hostAward(host, [{ playerId: other, amount }]);
+    r.table.hostAward(host, [{ playerId: other, amount }], "test");
     expect(view(r).seats[1]).toBeNull();
     expect(view(r).config.awardMode).toBe("auto");
     const l = view(r).ledger.find((e) => e.playerId === other)!;
@@ -172,7 +172,7 @@ describe("dealer transfers", () => {
     r.clock.advance(1000);
     r.table.hostTransfer(a, a, b, 100);
     foldAround(r);
-    r.table.hostAward(a, [{ playerId: b, amount: view(r).pendingAward!.amount }]);
+    r.table.hostAward(a, [{ playerId: b, amount: view(r).pendingAward!.amount }], "test");
     const v = view(r);
     expect(v.log.some((l) => l.includes("was skipped"))).toBe(true);
     expect(v.seats.filter(Boolean).reduce((n, s) => n + s!.stack, 0)).toBe(200);
@@ -433,7 +433,7 @@ describe("tournament", () => {
     foldAround(r);
     const amount = view(r).pendingAward!.amount;
     expect(view(r).tournament!.status).toBe("running");
-    r.table.hostAward(host, [{ playerId: host, amount }]);
+    r.table.hostAward(host, [{ playerId: host, amount }], "test");
     const v = view(r);
     expect(v.tournament).toMatchObject({ status: "finished", playersLeft: 1, levelEndsAt: null });
     expect(v.tournament!.standings.map((x) => [x.name, x.place])).toEqual([["P0", 1], ["P1", 2], ["P2", 3], ["P3", 4], ["P4", 5]]);
@@ -467,7 +467,7 @@ describe("tournament", () => {
     r.clock.advance(1000);
     r.table.hostAdjustStack(host, c, -1000);
     foldAround(r);
-    r.table.hostAward(host, [{ playerId: host, amount: view(r).pendingAward!.amount }]);
+    r.table.hostAward(host, [{ playerId: host, amount: view(r).pendingAward!.amount }], "test");
     let v = view(r);
     expect(v.log).toContain("P2 finishes 3rd");
     expect(v.tournament!.playersLeft).toBe(2);
@@ -500,7 +500,7 @@ describe("tournament", () => {
     }
     const pa = view(r).pendingAward!;
     expect(pa.amount).toBe(2000);
-    r.table.hostAward(host, [{ playerId: other, amount: 2000 }]);
+    r.table.hostAward(host, [{ playerId: other, amount: 2000 }], "test");
     const v = view(r);
     expect(v.log).toContain("P0 finishes 2nd");
     expect(v.log).toContain("P1 wins the tournament!");

@@ -8,8 +8,8 @@ You are checking the monthly spending guardrail for Mocha Poker, Fred’s privat
 
 1. Read the access key from the file C:\Users\Windows\.mochapoker\usage-token (a single line of hex). Never print the key or put it in an email.
 
-2. Fetch the usage report with Bash (curl), passing the key as the token query parameter:
-   `curl -s -w "\nHTTP %{http_code}" "https://mochapoker.fly.dev/admin/usage?token=<KEY>"`
+2. Fetch the usage report with Bash (curl), sending the key in an Authorization header (the old ?token= query form still works but is deprecated, because URLs get logged):
+   `curl -s -w "\nHTTP %{http_code}" -H "Authorization: Bearer <KEY>" "https://mochapoker.fly.dev/admin/usage"`
    The first request after an idle period can take a few seconds while the server wakes up; if it fails or times out, wait 15 seconds and try once more.
    - HTTP 404: the meter key isn’t set up yet. Stop and report “Budget meter not configured yet (HTTP 404). No email sent.”
    - HTTP 401, or the site can’t be reached after the retry: stop and report the HTTP code or error. No email.
@@ -21,7 +21,7 @@ You are checking the monthly spending guardrail for Mocha Poker, Fred’s privat
    - Anything else → send nothing.
 
 4. After sending, record it so it isn’t sent again this month:
-   `curl -s -X POST "https://mochapoker.fly.dev/admin/usage/notified?token=<KEY>&level=<warn|limit>"`
+   `curl -s -X POST -H "Authorization: Bearer <KEY>" "https://mochapoker.fly.dev/admin/usage/notified?level=<warn|limit>"`
 
 Send emails with the Gmail connector’s send_message tool, to heessuh@gmail.com only, as plain text (no Markdown). Use American English and curly quotes and apostrophes. Show dollar amounts with two decimals.
 

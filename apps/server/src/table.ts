@@ -155,6 +155,7 @@ export interface TableSnapshot {
   transfers: Transfer[];
   /** Host who asked for a seat shuffle that waits for the current hand to end. */
   seatShuffleBy?: string | null;
+  locked?: boolean;
   tournament: { status: TourneyState["status"]; levelIndex: number; levelsCompleted: number; levelRemainingMs: number; clockRunning: boolean } | null;
   log: string[];
   /** Dealer ledger, oldest first. Append-only; never truncated. */
@@ -303,6 +304,7 @@ export class Table {
   private budgetNotice: string | null = null;
   private transfers: Transfer[] = [];
   private seatShuffleBy: string | null = null;
+  private locked = false;
   private t: TourneyState | null = null;
   private levelTimer: unknown = null;
 
@@ -352,6 +354,7 @@ export class Table {
       nextDelay: this.nextDelay,
       transfers: this.transfers,
       seatShuffleBy: this.seatShuffleBy,
+      locked: this.locked,
       tournament: t
         ? {
             status: t.status, levelIndex: t.levelIndex, levelsCompleted: t.levelsCompleted,
@@ -391,6 +394,7 @@ export class Table {
     this.nextDelay = s.nextDelay;
     this.transfers = s.transfers ?? [];
     this.seatShuffleBy = s.seatShuffleBy ?? null;
+    this.locked = s.locked ?? false;
     this.log = s.log ?? [];
     this.dealerLog = s.dealerLog ?? [];
     if (this.dealerLog.length) this.dealerHead = this.dealerLog[this.dealerLog.length - 1]!.hash;
@@ -477,6 +481,7 @@ export class Table {
       p.name = this.uniqueName(name, p.id);
       if (avatar !== undefined) p.avatar = avatar;
     } else {
+      if (this.locked) throw new UserError("This table is locked. Ask the host to unlock it or send you a new invite.");
       const id = randomBytes(8).toString("hex");
       p = {
         id, token, name: this.uniqueName(name, id), connections: 0, seat: null, stack: 0, sittingOut: false, blindDue: false, postBlind: false,
@@ -739,13 +744,13 @@ export class Table {
     }, remaining);
   }
 
-  /** Moves host to a connected player: seated players by seat order first, then anyone connected. */
+  /** Moves host to a connected, seated player (lowest seat first). Spectators never inherit host; with nobody seated and online the table keeps its absent host. */
   private handOffHost(): void {
     if (!this.hostId) return;
     const host = this.players.get(this.hostId);
     if (!host || host.connections > 0) return;
     const candidates = [...this.players.values()].filter((p) => p.id !== host.id && p.connections > 0 && !p.banned);
-    const next = candidates.filter((p) => p.seat !== null).sort((a, b) => a.seat! - b.seat!)[0] ?? candidates[0];
+    const next = candidates.filter((p) => p.seat !== null).sort((a, b) => a.seat! - b.seat!)[0];
     if (!next) return;
     this.hostId = next.id;
     this.hostOfflineSince = null;
@@ -1537,11 +1542,22 @@ export class Table {
     }
   }
 
-  hostAward(playerId: string, awards: unknown): void {
-    this.asHost(playerId, "award", (host, rec) => this.doAward(host, rec, awards));
+  hostAward(playerId: string, awards: unknown, reason?: unknown): void {
+    this.asHost(playerId, "award", (host, rec) => this.doAward(host, rec, awards, reason));
   }
 
-  private doAward(host: Player, rec: Rec, awards: unknown): void {
+  /** Host locks the table so only players who already sat here can reconnect. */
+  hostSetLocked(playerId: string, locked: unknown): void {
+    if (typeof locked !== "boolean") throw new UserError("Invalid request.");
+    this.asHost(playerId, "lock", (host, rec) => {
+      this.locked = locked;
+      this.addLog(locked ? "The host locked the table" : "The host unlocked the table");
+      rec(`${host.name} ${locked ? "locked" : "unlocked"} the table`, { locked });
+      this.changed();
+    });
+  }
+
+  private doAward(host: Player, rec: Rec, awards: unknown, rawReason?: unknown): void {
     const pa = this.pendingAward;
     if (!pa) throw new UserError("There is no pot waiting to be awarded.");
     if (!Array.isArray(awards)) throw new UserError("Invalid request.");
@@ -1555,6 +1571,9 @@ export class Table {
     }
     const sum = [...totals.values()].reduce((x, y) => x + y, 0);
     if (sum !== pa.amount) throw new UserError(`Awards must add up to exactly ${this.m(pa.amount)} (you entered ${this.m(sum)}).`);
+    const matches = pa.suggested.length === [...totals].filter(([, a]) => a > 0).length && pa.suggested.every((x) => totals.get(x.playerId) === x.amount);
+    const reason = typeof rawReason === "string" ? rawReason.trim().slice(0, 200) : "";
+    if (!matches && reason.length < 3) throw new UserError("This differs from the suggested payout. Write a short reason (a few words) so everyone can see why.");
     const h = this.hand!;
     const byHand = new Map<string, string>();
     for (const w of h.state.outcome!.winners) if (w.handName && !byHand.has(w.playerId)) byHand.set(w.playerId, w.handName);
@@ -1573,7 +1592,8 @@ export class Table {
       pot: pa.amount,
       awards: winners.map((w) => ({ playerId: w.playerId, name: this.players.get(w.playerId)?.name ?? "?", amount: w.amount })),
       suggested: pa.suggested.map((x) => ({ playerId: x.playerId, name: this.players.get(x.playerId)?.name ?? "?", amount: x.amount })),
-      matchedSuggestion: pa.suggested.length === winners.length && pa.suggested.every((x) => winners.some((w) => w.playerId === x.playerId && w.amount === x.amount)),
+      matchedSuggestion: matches,
+      ...(matches ? {} : { reason }),
     });
     h.awarded = winners;
     if (this.lastHand) {
@@ -2003,6 +2023,7 @@ export class Table {
       handList: this.handList(),
       canExtend: this.canExtendNow(me),
       seatShufflePending: this.seatShuffleBy !== null,
+      locked: this.locked,
       tournament: this.tournamentView(),
       siteNotice: this.budgetNotice,
       fairness: this.deckSource ? null : { nextHandNumber: this.handCounter + 1, serverSeedHash: seedHash(this.nextServerSeed) },

@@ -15,17 +15,26 @@ import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "dealer" | "host" | "fairness";
 
 export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: Send; tab: Tab; setTab: (t: Tab) => void }) {
-  const tabs: [Tab, string][] = [["log", "Log"], ["ledger", "Ledger"], ["history", "History"], ["last", "Last hand"], ["fairness", "Fairness"], ["dealer", "Dealer log"]];
-  if (view.tournament) tabs.splice(1, 0, ["standings", "Standings"]);
+  const REVIEW: Tab[] = ["history", "fairness", "dealer"];
+  const inReview = REVIEW.includes(tab);
+  const tabs: [Tab, string][] = [["log", "Log"], ["last", "Last hand"], ["ledger", "Ledger"], ["history", "Review"]];
+  if (view.tournament) tabs.splice(3, 0, ["standings", "Standings"]);
   if (view.you.isHost) tabs.push(["host", "Host"]);
   return (
     <div className="panel">
       <div className="tabs" role="tablist">
         {tabs.map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
+          <button key={id} role="tab" aria-selected={tab === id || (id === "history" && inReview)} className={tab === id || (id === "history" && inReview) ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
       <div className="tabbody">
+        {inReview && (
+          <div className="review-sub" role="group" aria-label="Review">
+            {([["history", "Hands"], ["fairness", "Fairness"], ["dealer", "Dealer log"]] as [Tab, string][]).map(([id, label]) => (
+              <button key={id} className={`btn small ${tab === id ? "on" : ""}`} onClick={() => setTab(id)}>{label}</button>
+            ))}
+          </div>
+        )}
         {tab === "log" && <Log lines={view.log} send={send} tableId={view.tableId} />}
         {tab === "history" && <History view={view} send={send} />}
         {tab === "ledger" && <Ledger view={view} />}
@@ -307,6 +316,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         {view.status === "waiting" && <button className="btn call" onClick={() => send("host:start")}>Start game</button>}
         {view.status === "playing" && <button className="btn" onClick={() => send("host:pause", { paused: true })}>Pause</button>}
         {view.status === "paused" && <button className="btn call" onClick={() => send("host:pause", { paused: false })}>Resume</button>}
+        <button className="btn" onClick={() => send("host:setLocked", { locked: !view.locked })}>{view.locked ? "Unlock table" : "Lock table"}</button>
         <button className="btn" disabled={view.seatShufflePending || view.seats.filter(Boolean).length < 2} onClick={() => send("host:shuffleSeats")}>
           {view.seatShufflePending ? "Seats shuffle after this hand" : "Shuffle seats"}
         </button>
@@ -368,8 +378,8 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         )}
         <label className="full">Pot awarding
           <select value={draft.awardMode} onChange={(e) => setDraft({ ...draft, awardMode: e.target.value as TableConfig["awardMode"] })}>
-            <option value="host">Dealer decides (default)</option>
-            <option value="auto">Automatic</option>
+            <option value="auto">Automatic (default)</option>
+            <option value="host">Dealer decides (changes need a reason)</option>
           </select>
         </label>
       </div>
@@ -378,7 +388,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
       <p className="muted small">Applies next hand if one is in progress.</p>
       <div className="defaults">
         <button className="btn small" onClick={() => send("host:saveDefaults")}>Save as house defaults</button>
-        <p className="muted small">New tables will start with these settings.</p>
+        <p className="muted small">Tables you create from this device will start with these settings. Other people’s tables are not affected.</p>
       </div>
 
       <h4>Mode</h4>

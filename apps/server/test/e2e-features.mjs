@@ -27,7 +27,7 @@ for (let i = 0; i < 40 && !H.v.pendingAward; i++) await wait(250);
 const pa = H.v.pendingAward; ok(!!pa, "pot held for dealer"); const pot = pa?.amount ?? 0;
 H.s.emit("host:award", { awards: [{ playerId: pa.candidatePlayerIds[0], amount: pot - 1 }] }); await wait(200); ok(H.errors.length > 0 && !!H.v.pendingAward, "wrong sum rejected");
 const before = H.v.seats.map((s) => s?.stack ?? 0);
-H.s.emit("host:award", { awards: [{ playerId: H.v.seats[2].playerId, amount: pot }] }); await wait(300);
+H.s.emit("host:award", { awards: [{ playerId: H.v.seats[2].playerId, amount: pot }], reason: "test override" }); await wait(300);
 ok(!H.v.pendingAward && H.v.seats[2].stack === before[2] + pot, "award paid to chosen player");
 ok(A.v.pendingAward === null, "others see award cleared");
 H.s.emit("host:pause", { paused: true }); H.auto = A.auto = B.auto = false;

@@ -4,6 +4,12 @@ Our own betting limits and game rules (5-Murder, FYST, SMD, TKO, the Hi/Lo games
 
 A quick guide for friends at the table. You don’t need an account or an app: just a link.
 
+## Before you sit down
+
+While the table waits for players, a **Table rules** line above the seats opens to show the blinds, the house limit, the buy-in range and how pots are paid. The felt says how many players are seated and what to do next.
+
+After each hand the shuffle is published so everyone can check it. That includes the cards of players who folded, so assume a finished hand is visible to the table.
+
 ## Join from a link
 
 1. Open the table link your host sent you. It looks like `…/#table-code`.
@@ -59,7 +65,7 @@ If you time out twice in a row without acting, you’re put in **sitting out** m
 
 ## Awarding the pot
 
-By default the dealer awards every pot. At showdown, everyone sees the winnings about to be awarded. You may see “Waiting for the dealer to award the pot.” Just wait; the dealer can adjust the amounts, then clicks **Next hand** to pay out and deal the next hand. Some tables pay out automatically, based on the cards.
+By default the server awards every pot based on the cards. Some tables let the dealer decide: you may see “Waiting for the dealer to award the pot.” Just wait; the dealer can adjust the amounts (with a written reason, which everyone can read in the dealer log), then clicks **Next hand** to pay out and deal the next hand.
 
 ## Games
 
@@ -89,11 +95,11 @@ If the host runs a tournament instead of a cash game:
 - The level clock shows the current blinds, a countdown, and the next level. Blinds go up at the next hand after the clock runs out.
 - When you lose all your chips, you’re out and you get a finishing place.
 
-## The Log, Ledger, History, and Standings tabs
+## The Log, Last hand, Ledger, Review, and Standings tabs
 
 - **Log** shows what has happened at the table in order, newest at the bottom, including each hand’s actions and results. Use **Full session log** for the whole session, or **Download log** for a .txt file.
 - **Ledger** lists everyone’s buy-ins, cash-outs, and current stack, with the net result for each player. Use it to settle up at the end of the night.
-- **History** lists every hand of the session. Tap one to see the board, the hands shown, the winners, the summary, and its shuffle proof.
+- **Review** groups **Hands** (every hand of the session: the board, the hands shown, the winners, the summary and its shuffle proof), **Fairness** and the **Dealer log**.
 - **Standings** shows the tournament standings: who is still in and who has finished where.
 
 ## Verify shuffle

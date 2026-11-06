@@ -112,7 +112,7 @@ export const DEFAULT_CONFIG: TableConfig = {
   extensionSec: 15,
   minBuyIn: 500,
   maxBuyIn: 5000,
-  awardMode: "host",
+  awardMode: "auto",
   mode: "cash",
   tournament: TOURNAMENT_PRESETS.standard.config,
   stud: DEFAULT_STUD,
@@ -348,6 +348,8 @@ export interface TableView {
   canExtend: boolean;
   /** The dealer asked to shuffle the seats; it happens when the current hand ends. */
   seatShufflePending: boolean;
+  /** True when the host has locked the table: only players who already sat here can come back. */
+  locked: boolean;
   tournament: TournamentView | null; // null in cash mode
   /** Site-wide message (e.g. the monthly budget has been reached); null normally. */
   siteNotice: string | null;
@@ -383,7 +385,8 @@ export interface ClientToServerEvents {
   /** Save this table's settings as the house defaults every NEW table starts with. */
   "host:saveDefaults": () => void;
   /** Hand out a pending pot. Amounts are non-negative integers that must sum to pendingAward.amount. */
-  "host:award": (p: { awards: { playerId: string; amount: number }[] }) => void;
+  "host:award": (p: { awards: { playerId: string; amount: number }[]; reason?: string }) => void;
+  "host:setLocked": (p: { locked: boolean }) => void;
   /** Move chips from one player's stack to another's. Applied at once between hands, queued during a hand. */
   "host:transfer": (p: { fromPlayerId: string; toPlayerId: string; amount: number }) => void;
   "host:playerTimer": (p: { playerId: string; seconds: number | null }) => void; // null = table default, 0 = no limit, else 10..300

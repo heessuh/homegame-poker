@@ -104,7 +104,7 @@ describe("persistence: table snapshots", () => {
     r2.clock.advance(30_000);
     expect(view(r2).hand!.handNumber).toBe(1); // still waiting for the dealer
     const other2 = r2.ids.find((i) => i !== host)!;
-    r2.table.hostAward(host, [{ playerId: other2, amount: pa.amount }]);
+    r2.table.hostAward(host, [{ playerId: other2, amount: pa.amount }], "test");
     expect(view(r2).hand!.winners).toEqual([{ playerId: other2, amount: pa.amount, potIndex: 0, half: "whole", handName: view(r2).hand!.winners![0]!.handName }]);
     expect(view(r2).pendingAward).toBeNull();
     expect(total(view(r2))).toBe(200);
@@ -287,7 +287,7 @@ describe("persistence: server", () => {
     open.push(server);
     const a = client(server.port, "defaults-one", "Ana", "tok-ana-123456");
     await until(() => !!a.view);
-    expect(a.view!.config.awardMode).toBe("host");
+    expect(a.view!.config.awardMode).toBe("auto");
     expect(a.view!.config.extensionSec).toBe(15);
     a.emit("host:config", { smallBlind: 5, bigBlind: 10, extensionSec: 20 });
     await until(() => a.view!.config.bigBlind === 10);
@@ -296,10 +296,13 @@ describe("persistence: server", () => {
     a.emit("host:saveDefaults");
     await until(() => a.view!.log.includes("Saved these settings as the house defaults"));
     await until(() => existsSync(join(dir, "house-defaults.json")));
-    expect(JSON.parse(readFileSync(join(dir, "house-defaults.json"), "utf8"))).toMatchObject({ bigBlind: 10, extensionSec: 20, awardMode: "host" });
+    expect(JSON.parse(readFileSync(join(dir, "house-defaults.json"), "utf8"))).toMatchObject({ version: 2 });
+    const saved = Object.values(JSON.parse(readFileSync(join(dir, "house-defaults.json"), "utf8")).hosts)[0];
+    expect(saved).toMatchObject({ bigBlind: 10, extensionSec: 20, awardMode: "auto" });
     const b = client(server.port, "defaults-two", "Bo", "tok-bo-1234567");
     await until(() => !!b.view);
-    expect(b.view!.config).toMatchObject({ smallBlind: 5, bigBlind: 10, extensionSec: 20 });
+    // Bo created this table, so Ana’s saved settings do not apply to it.
+    expect(b.view!.config).toMatchObject({ smallBlind: 10, bigBlind: 20, extensionSec: 15 });
     a.close();
     b.close();
 
@@ -315,9 +318,13 @@ describe("persistence: server", () => {
     expect(a2.view!.you.isHost).toBe(true);
     expect(a2.view!.config.bigBlind).toBe(10);
     expect(a2.view!.seats[2]!.stack).toBe(1000);
-    const c = client(server.port, "defaults-three", "Cy", "tok-cy-1234567");
+    const c = client(server.port, "defaults-three", "Ana", "tok-ana-123456");
     await until(() => !!c.view);
-    expect(c.view!.config.bigBlind).toBe(10);
+    expect(c.view!.config.bigBlind).toBe(10); // Ana’s own new table starts from her saved settings
+    const d = client(server.port, "defaults-four", "Cy", "tok-cy-1234567");
+    await until(() => !!d.view);
+    expect(d.view!.config.bigBlind).toBe(20); // someone else’s new table does not
+    d.close();
     a2.close();
     c.close();
   }, 30_000);

@@ -166,21 +166,28 @@ export class Store {
     return out;
   }
 
-  async loadDefaults(): Promise<Partial<TableConfig> | undefined> {
+  /**
+   * Saved table settings, one entry per host (keyed by a hash of the host's player token), so one host's
+   * choices never change the tables other people create. The old single-file format is ignored on purpose.
+   */
+  async loadDefaults(): Promise<Record<string, Partial<TableConfig>>> {
     try {
       const v = JSON.parse(await this.fs.readFile(join(this.dir, "house-defaults.json"), "utf8")) as unknown;
-      if (v && typeof v === "object" && !Array.isArray(v)) return v as Partial<TableConfig>;
+      if (v && typeof v === "object" && !Array.isArray(v) && (v as { version?: unknown }).version === 2) {
+        const hosts = (v as { hosts?: unknown }).hosts;
+        if (hosts && typeof hosts === "object" && !Array.isArray(hosts)) return hosts as Record<string, Partial<TableConfig>>;
+      }
     } catch (e) {
       if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") console.warn("Ignoring unreadable house-defaults.json");
     }
-    return undefined;
+    return {};
   }
 
-  async saveDefaults(config: TableConfig): Promise<void> {
+  async saveDefaults(hosts: Record<string, Partial<TableConfig>>): Promise<void> {
     await this.ensureDir();
     const path = join(this.dir, "house-defaults.json");
     const tmp = `${path}.tmp`;
-    await this.fs.writeFile(tmp, JSON.stringify({ ...DEFAULT_CONFIG, ...config }, null, 2));
+    await this.fs.writeFile(tmp, JSON.stringify({ version: 2, hosts }, null, 2));
     await this.fs.rename(tmp, path);
   }
 }

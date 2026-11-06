@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated November 5, 2026. The site is live at https://mochapoker.fly.dev. So far it has been played only by the owner and test bots; the next step is a real game night with friends.
+Last updated November 6, 2026. The site is live at https://mochapoker.fly.dev. So far it has been played only by the owner and test bots; the next step is a real game night with friends.
 
 ## Done
 
@@ -28,11 +28,24 @@ Last updated November 5, 2026. The site is live at https://mochapoker.fly.dev. S
 - [x] Deploys only from GitHub, and an app code check ([PROVENANCE.md](PROVENANCE.md))
 - [x] Independent RNG test suites: dieharder, PractRand, NIST, permutation tests ([RNG_TESTING.md](RNG_TESTING.md))
 
+### Hardening (from an independent review, November 6, 2026)
+- [x] Saved settings are per host, so one host cannot change other people’s new tables
+- [x] Only seated players can inherit host; a table can be locked against new joiners; new table links are 12 random characters
+- [x] Pots pay automatically by default; a dealer override needs a written reason, kept in the dealer log
+- [x] Only our own pages may open the live connection; join and request rate limits
+- [x] Security headers (HSTS, content security policy); the usage token goes in a header, not the URL
+- [x] Rules shown before sitting down, clearer waiting screen, Review tab groups hands, fairness and dealer log
+- [x] Players are told that a finished hand’s shuffle shows folded cards too
+
 ### Running the site
 - [x] Fly.io scale-to-zero hosting, CI, and post-deploy QA ([TEST_PLAN.md](TEST_PLAN.md))
 - [x] $5 monthly budget guardrail with email alerts ([BUDGET.md](BUDGET.md))
 
 ## Not built yet
+- [ ] Co-host and host-approval for joiners (the lock covers the basic case)
+- [ ] Revocable invite links and server-issued player credentials scoped to one table
+- [ ] A “muck-private” mode that withholds the deck from players (gives up independent full-deck verification)
+- [ ] Fairness tab leads with the result and hand count, details expandable
 - [ ] Dealer’s-choice or mixed-game rotation (today the host changes the game by hand)
 - [ ] Custom domain (Fred would buy it; mochapoker.com was unregistered on November 4, 2026)
 - [ ] Stronger Fly.io hosting, only if the friends like the beta

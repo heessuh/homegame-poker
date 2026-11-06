@@ -117,7 +117,7 @@ describe("dealer ledger: entries per action", () => {
     expect(last(r).summary).toMatch(/takes effect next hand/);
     foldAround(r);
     const pa = r.table.viewFor(host).pendingAward!;
-    r.table.hostAward(host, [{ playerId: other, amount: pa.amount }]);
+    r.table.hostAward(host, [{ playerId: other, amount: pa.amount }], "test");
     const e = last(r);
     expect(e.action).toBe("award");
     expect(e.details).toMatchObject({ handNumber: 1, pot: pa.amount, awards: [{ playerId: other, name: "P1", amount: pa.amount }], matchedSuggestion: true });
@@ -172,6 +172,7 @@ describe("dealer ledger: entries per action", () => {
   it("records a host handoff and the new host's later actions", () => {
     const r = rig(2);
     const [h, b] = r.ids as [string, string];
+    seatAll(r); // only seated players inherit host
     r.table.disconnect(h);
     r.clock.advance(61_000);
     expect(last(r)).toMatchObject({ action: "handoff", hostId: b, details: { fromId: h, toId: b } });
@@ -320,7 +321,7 @@ describe("dealer ledger: every host path is logged", () => {
       const r = hand();
       foldAround(r);
       const pa = r.table.viewFor(r.ids[0]!).pendingAward!;
-      return { r, run: (h) => r.table.hostAward(h, [{ playerId: r.ids[1]!, amount: pa.amount }]) };
+      return { r, run: (h) => r.table.hostAward(h, [{ playerId: r.ids[1]!, amount: pa.amount }], "test") };
     },
     hostTransfer: () => { const r = hand(); return { r, run: (h) => r.table.hostTransfer(h, r.ids[1]!, r.ids[2]!, 5) }; },
     hostPlayerTimer: () => { const r = hand(); return { r, run: (h) => r.table.hostPlayerTimer(h, r.ids[1]!, 45) }; },
@@ -328,6 +329,7 @@ describe("dealer ledger: every host path is logged", () => {
     hostForceTimeout: () => { const r = hand(); return { r, run: (h) => r.table.hostForceTimeout(h, actorOf(r)) }; },
     hostTournamentLevel: () => { const r = tour(); return { r, run: (h) => r.table.hostTournamentLevel(h, 1) }; },
     hostTournamentClock: () => { const r = tour(); return { r, run: (h) => r.table.hostTournamentClock(h, 5000) }; },
+    hostSetLocked: () => { const r = rig(2); return { r, run: (h) => r.table.hostSetLocked(h, true) }; },
     hostShuffleSeats: () => { const r = rig(2); seatAll(r); return { r, run: (h) => r.table.hostShuffleSeats(h) }; },
   };
 

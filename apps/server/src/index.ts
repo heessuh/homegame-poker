@@ -33,6 +33,8 @@ const GC_EVERY_MS = 60 * 60 * 1000;
 interface SocketData {
   tableId?: string;
   playerId?: string;
+  /** Short hash of this player's token; keys the host's saved settings without storing the token. */
+  tokenKey?: string;
 }
 type PokerSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 
@@ -45,6 +47,8 @@ export interface ServerOptions {
   fs?: FsLike;
   /** Budget limits and cost rates. Default: read from the environment (BUDGET_LIMIT_USD etc.). */
   budget?: Partial<UsageConfig>;
+  /** Join attempts allowed per client address per minute. Default 200. */
+  joinLimitPerMinute?: number;
   /** Token for /admin/usage. Default: $USAGE_TOKEN (the endpoints answer 404 when it is unset). */
   usageToken?: string;
   /** Directory of the built web app. Default: apps/web/dist next to the server build. */
@@ -62,7 +66,8 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
   const deckSource = opts.deckSource;
   const dataDir = opts.dataDir === undefined ? (process.env.DATA_DIR ?? "./data") : opts.dataDir;
   const store = dataDir === null ? null : new Store({ dir: dataDir, scheduler, now, fs: opts.fs });
-  let houseDefaults: Partial<TableConfig> | undefined = store ? await store.loadDefaults() : undefined;
+  const houseDefaults: Record<string, Partial<TableConfig>> = store ? await store.loadDefaults() : {};
+  const keyOf = (token: string): string => createHash("sha256").update(token).digest("hex").slice(0, 16);
 
   const meter = new UsageMeter({
     dir: dataDir, now, scheduler, fs: opts.fs,
@@ -74,6 +79,18 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
   let budgetNote: string | null = meter.notice();
 
   const app = express();
+  app.disable("x-powered-by");
+  // Security headers on every response. The CSP allows only our own files and our own socket connection.
+  app.use((_req, res, next) => {
+    res.set({
+      "Strict-Transport-Security": "max-age=31536000",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' wss: ws:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+      "X-Frame-Options": "DENY",
+    });
+    next();
+  });
   const tokenOk = (given: unknown): boolean => {
     const want = opts.usageToken ?? process.env.USAGE_TOKEN;
     if (!want || typeof given !== "string") return false;
@@ -86,7 +103,8 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       res.status(404).json({ error: "Not found" });
       return false;
     }
-    if (!tokenOk(req.query.token)) {
+    const bearer = /^Bearer (.+)$/i.exec(req.get("authorization") ?? "")?.[1];
+    if (!tokenOk(bearer ?? req.query.token)) {
       res.status(401).json({ error: "Unauthorized" });
       return false;
     }
@@ -122,9 +140,29 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
 
   const http = createServer(app);
   http.on("connection", (s: NetSocket) => meter.track(s));
+  // Browsers always send Origin on a WebSocket; only our own pages (same host) or an allowed origin may connect.
+  // Scripts and bots that send no Origin header are not browsers and are unaffected.
+  const allowedOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:5173").split(",").map((s) => s.trim()).filter(Boolean);
   const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(http, {
-    cors: { origin: process.env.CORS_ORIGIN ?? "http://localhost:5173" },
+    cors: { origin: allowedOrigins },
+    allowRequest: (req, cb) => {
+      const origin = req.headers.origin;
+      if (!origin) return cb(null, true);
+      let ok = allowedOrigins.includes(origin);
+      try { ok = ok || new URL(origin).host === req.headers.host; } catch { ok = false; }
+      cb(null, ok);
+    },
   });
+  // Join attempts per client address: a table code is not a secret worth guessing at speed.
+  const joinTries = new Map<string, number[]>();
+  const joinAllowed = (addr: string): boolean => {
+    const t = now();
+    const recent = (joinTries.get(addr) ?? []).filter((x) => t - x < 60_000);
+    recent.push(t);
+    joinTries.set(addr, recent);
+    if (joinTries.size > 5000) for (const [k, v] of joinTries) if (!v.some((x) => t - x < 60_000)) joinTries.delete(k);
+    return recent.length <= (opts.joinLimitPerMinute ?? 200);
+  };
 
   const tables = new Map<string, Table>();
   // sockets per (tableId, playerId)
@@ -152,9 +190,9 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
     if (store) void store.remove(id);
   }
 
-  function makeTable(tableId: string, snapshot?: TableSnapshot): Table {
+  function makeTable(tableId: string, snapshot?: TableSnapshot, creatorKey?: string): Table {
     const t: Table = new Table({
-      tableId, now, scheduler, deckSource, onHandRecorded: (id, rec) => audit.record(id, rec), config: houseDefaults, snapshot,
+      tableId, now, scheduler, deckSource, onHandRecorded: (id, rec) => audit.record(id, rec), config: creatorKey ? houseDefaults[creatorKey] : undefined, snapshot,
       onChange: () => {
         broadcast(tableId);
         if (store) store.markDirty(tableId, () => (tables.get(tableId) === t ? t.snapshot() : null));
@@ -166,9 +204,9 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
     return t;
   }
 
-  function getOrCreateTable(tableId: string): Table {
-    let t = tables.get(tableId);
-    return t ?? makeTable(tableId);
+  function getOrCreateTable(tableId: string, creatorKey: string): Table {
+    const t = tables.get(tableId);
+    return t ?? makeTable(tableId, undefined, creatorKey);
   }
 
   if (store) {
@@ -207,6 +245,22 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
         socket.emit("error", { message: "Something went wrong on the server." });
       }
     };
+    // At most 200 messages per 10 seconds per connection, and 60 for the heavy history lookups.
+    const sent: number[] = [];
+    const heavySent: number[] = [];
+    socket.use(([ev], next) => {
+      const t = now();
+      while (sent.length && t - sent[0]! > 10_000) sent.shift();
+      sent.push(t);
+      let heavy = false;
+      if (ev === "getSessionReview" || ev === "getHand" || ev === "getRngAudit" || ev === "getDealerLog") {
+        while (heavySent.length && t - heavySent[0]! > 10_000) heavySent.shift();
+        heavySent.push(t);
+        heavy = heavySent.length > 60;
+      }
+      if (sent.length > 200 || heavy) return next(new Error("Too many requests. Slow down for a moment."));
+      next();
+    });
     /** Wraps a handler: arguments are untrusted, errors are reported to this socket only. */
     const handle = (fn: (raw: unknown) => void) => (raw?: unknown) => {
       try {
@@ -240,10 +294,13 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       }
       if (typeof p.name !== "string") throw new UserError("Enter a name.");
       if (typeof p.playerToken !== "string") throw new UserError("Missing player token.");
+      const addr = String(socket.handshake.headers["fly-client-ip"] ?? socket.handshake.address);
+      if (!joinAllowed(addr)) throw new UserError("Too many join attempts. Wait a minute and try again.");
       const tableId = p.tableId.toLowerCase();
       const existed = tables.has(tableId);
       if (!existed && budgetNote) throw new UserError(budgetNote);
-      const table = getOrCreateTable(tableId);
+      const tokenKey = keyOf(p.playerToken);
+      const table = getOrCreateTable(tableId, tokenKey);
       let playerId: string;
       try {
         playerId = table.join(p.playerToken, p.name, p.avatar);
@@ -253,6 +310,7 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       }
       socket.data.tableId = tableId;
       socket.data.playerId = playerId;
+      socket.data.tokenKey = tokenKey;
       const byPlayer = sockets.get(tableId)!;
       let set = byPlayer.get(playerId);
       if (!set) byPlayer.set(playerId, (set = new Set()));
@@ -438,14 +496,22 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
     on("host:saveDefaults", handle(() => {
       const { table, playerId } = ctx();
       const cfg = table.hostSaveDefaults(playerId);
-      houseDefaults = cfg;
-      if (store) store.saveDefaults(cfg).catch((e) => console.error("saving house defaults failed", e));
+      const key = socket.data.tokenKey;
+      if (!key) return;
+      houseDefaults[key] = cfg;
+      if (store) store.saveDefaults(houseDefaults).catch((e) => console.error("saving house defaults failed", e));
     }));
 
     on("host:award", handle((raw) => {
       const p = obj(raw);
       const { table, playerId } = ctx();
-      table.hostAward(playerId, p.awards);
+      table.hostAward(playerId, p.awards, p.reason);
+    }));
+
+    on("host:setLocked", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostSetLocked(playerId, p.locked);
     }));
 
     on("host:transfer", handle((raw) => {
