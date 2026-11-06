@@ -122,11 +122,11 @@ Write `test-reports/YYYY-MM-DD-HHMM-<commit>.md` (local time), using this templa
 
 | Step | Result | Notes |
 |---|---|---|
-| Engine tests | 228 passed | |
-| Server tests | 79 passed | |
-| All games (local) | 10/10 games, 6/6 scenarios | |
+| Engine tests | 339 passed | |
+| Server tests | 157 passed | |
+| All games (local) | 21/21 groups, 2382 checks | |
 | Live health | ok | |
-| All games (live) | 10/10 games | |
+| All games (live) | 20/20 groups, 1270 checks | |
 | Live feature check | 15/15 | |
 
 ## Games

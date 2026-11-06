@@ -1,14 +1,18 @@
 # Roadmap
 
-Last updated November 4, 2026. The site is live at https://mochapoker.fly.dev. So far it has been played only by the owner and test bots; the next step is a real game night with friends.
+Last updated November 5, 2026. The site is live at https://mochapoker.fly.dev. So far it has been played only by the owner and test bots; the next step is a real game night with friends.
 
 ## Done
 
 ### Playing
 - [x] Hold’em and Omaha evaluators, high and low, with split and quartered pots
 - [x] Betting: no-limit, pot-limit, the $2 house limit in cash games, all-ins and side pots
-- [x] Games: NLHE, NLHE Hi/Lo, PLO4/5, PLO4-8/5-8, Omaha Low 8, Omaha Low (no qualifier), FYST, 5-Murder
+- [x] Games: NLHE, NLHE Hi/Lo, PLO4/5, PLO4-8/5-8, Omaha Low 8, Omaha Low (no qualifier), FYST, SMD (4- and 5-card), TKO (4- and 5-card), 5-Murder
 - [x] Hand flow: button, blinds, streets, showdown, muck
+- [x] Missed-blind rule for players who sit mid-game (wait for the big blind, or post one)
+- [x] Raise rule from friends’ feedback: each raise at least the last, never more than $2 per raise
+- [x] Dealer can shuffle seats (queued until the hand ends if one is running)
+- [x] Table fits one screen on phones and desktops
 - [x] Host controls, action timers, reconnecting, host handoff
 - [x] Tournaments
 - [x] Chip ledger (buy-ins, rebuys, cash-outs) and hand history
