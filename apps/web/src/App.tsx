@@ -17,7 +17,7 @@ import { Avatar, AvatarPicker, Modal, MoneyInput, Wordmark, loadAvatar, saveAvat
 import { newClientSeed, rememberSeed } from "./fairness";
 import { FairWatch } from "./FairBanner";
 import { BuildInfo } from "./BuildInfo";
-import { fmt, isStud, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
+import { fmt, isStud, rulesLines, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
 
@@ -73,7 +73,7 @@ export function App() {
 
 function Landing() {
   const [code, setCode] = useState("");
-  const create = () => { location.hash = randomId(6); };
+  const create = () => { location.hash = randomId(12); };
   const join = () => { const c = code.trim().replace(/^.*#/, ""); if (c) location.hash = c; };
   return (
     <main className="landing">
@@ -82,7 +82,8 @@ function Landing() {
       <button className="btn call big" onClick={create}>Create a table</button>
       <div className="or">or</div>
       <form className="joinrow" onSubmit={(e) => { e.preventDefault(); join(); }}>
-        <input placeholder="Table code" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="off" />
+        <label className="sr" htmlFor="table-code">Table code</label>
+        <input id="table-code" placeholder="Table code" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="off" />
         <button className="btn" type="submit" disabled={!code.trim()}>Join table</button>
       </form>
       <BuildInfo />
@@ -97,7 +98,8 @@ function JoinForm({ tableId, initial, avatar, onAvatar, onJoin }: { tableId: str
     <main className="landing">
       <h1>Join table <code>{tableId}</code></h1>
       <form className="joinrow" onSubmit={(e) => { e.preventDefault(); if (n.trim()) onJoin(n.trim()); }}>
-        <input placeholder="Your name" value={n} maxLength={20} autoFocus onChange={(e) => setN(e.target.value)} />
+        <label className="sr" htmlFor="player-name">Your name</label>
+        <input id="player-name" placeholder="Your name" value={n} maxLength={20} autoFocus onChange={(e) => setN(e.target.value)} />
         <button className="btn call" type="submit" disabled={!n.trim()}>Join</button>
       </form>
       <button type="button" className="btn avbtn" onClick={() => setPicking(true)}>
@@ -273,6 +275,12 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
       <div className="main">
         <section className="stage">
           <TournamentHud view={view} send={send} />
+          {view.status !== "playing" && !view.hand && (
+            <details className="rulescard">
+              <summary>Table rules: {cfg.mode === "cash" && cfg.houseLimit.enabled ? `house limit ${fmt(cfg.houseLimit.maxBet)} per bet or raise` : "standard betting"}, {isStud(cfg) ? `ante ${fmt(cfg.stud.ante)}` : `blinds ${fmt(cfg.smallBlind)}/${fmt(cfg.bigBlind)}`}</summary>
+              <ul>{rulesLines(cfg, cfg.money === "cents").map((l) => <li key={l}>{l}</li>)}</ul>
+            </details>
+          )}
           <Table view={view} onSit={setSitSeat} onMe={() => setPickAvatar(true)} send={send} />
           {view.you.isHost && view.pendingAward && <AwardPanel view={view} pa={view.pendingAward} send={send} />}
           <ActionBar view={view} onAction={(a) => send("action", a)} onExtend={() => send("extendTime")} />

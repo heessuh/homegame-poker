@@ -20,8 +20,9 @@ export function AwardPanel({ view, pa, send }: { view: TableView; pa: PendingAwa
   };
   const [vals, setVals] = useState<Record<string, number>>(suggestedMap);
   const [open, setOpen] = useState(() => !narrow());
+  const [reason, setReason] = useState("");
   const key = `${pa.handNumber}:${pa.amount}:${pa.candidatePlayerIds.join(",")}:${pa.suggested.map((s) => s.playerId + s.amount).join(",")}`;
-  useEffect(() => { setVals(suggestedMap()); setOpen(!narrow()); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setVals(suggestedMap()); setReason(""); setOpen(!narrow()); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const int = (v: number | undefined) => Math.max(0, Math.floor(v || 0));
   const sum = pa.candidatePlayerIds.reduce((a, id) => a + int(vals[id]), 0);
   const remaining = pa.amount - sum;
@@ -31,8 +32,11 @@ export function AwardPanel({ view, pa, send }: { view: TableView; pa: PendingAwa
     for (const c of pa.candidatePlayerIds) m[c] = c === id ? pa.amount : 0;
     setVals(m);
   };
+  const sug = suggestedMap();
+  const changed = pa.candidatePlayerIds.some((id) => int(vals[id]) !== (sug[id] ?? 0));
   const next = () => send("host:award", {
     awards: pa.candidatePlayerIds.map((id) => ({ playerId: id, amount: int(vals[id]) })).filter((a) => a.amount > 0),
+    ...(changed ? { reason: reason.trim() } : {}),
   });
   const status = remaining === 0 ? "ok" : "bad";
   return (
@@ -56,10 +60,15 @@ export function AwardPanel({ view, pa, send }: { view: TableView; pa: PendingAwa
           ))}
         </div>
       )}
+      {changed && (
+        <label className="areason">Reason for changing the suggested payout (shown in the dealer log)
+          <input type="text" maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. chopped by agreement" />
+        </label>
+      )}
       <div className={`remaining ${status}`}>{remaining === 0 ? "Split matches the pot" : remaining > 0 ? `Remaining to assign: ${fmt(remaining)}` : `Over by ${fmt(-remaining)}`}</div>
       <div className="btn-row">
         <button className="btn" onClick={() => setVals(suggestedMap())}>Reset to suggested</button>
-        <button className="btn call" disabled={remaining !== 0} onClick={next}>Next hand</button>
+        <button className="btn call" disabled={remaining !== 0 || (changed && reason.trim().length < 3)} onClick={next}>Next hand</button>
       </div>
     </div>
   );

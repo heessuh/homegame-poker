@@ -79,6 +79,25 @@ export function totalPot(view: TableView): number {
 }
 
 /** Stud games (5-Murder). Defensive: works before the engine build knows the variant. */
+/** Plain-language rules for the table, shown before anyone sits down. */
+export function rulesLines(config: TableConfig, dollars: boolean): string[] {
+  const m = (n: number) => fmtWith(n, dollars);
+  const out: string[] = [];
+  if (isStud(config)) {
+    out.push(`Ante ${m(config.stud.ante)}; bets up to ${m(config.stud.maxBet)}, last round ${m(config.stud.maxBetLastRound)}; up to ${config.stud.maxRaises} raises a round.`);
+  } else {
+    out.push(`Blinds ${m(config.smallBlind)}/${m(config.bigBlind)}.`);
+    const hl = config.houseLimit;
+    if (config.mode === "cash" && hl.enabled) {
+      out.push(`House limit: each bet or raise ${m(hl.minBet)} to ${m(hl.maxBet)}${hl.raiseMustExceed ? ", and each raise at least the last one" : ""}; at most ${hl.maxRaises} raises a round.`);
+    } else out.push(config.mode === "tournament" ? "Tournament: pot-limit or no-limit by game." : "No house limit: standard betting for this game.");
+  }
+  if (config.mode === "cash") out.push(`Buy-in ${m(config.minBuyIn)} to ${m(config.maxBuyIn)}.`);
+  out.push(config.awardMode === "auto" ? "Pots are paid out automatically." : "The dealer awards each pot by hand; every change from the suggested payout needs a reason.");
+  out.push("After each hand the shuffle is published, so players can check it. That includes the cards of players who folded.");
+  return out;
+}
+
 export function isStud(config: Pick<TableConfig, "variant">): boolean {
   const v = VARIANTS[config.variant] as { kind?: string } | undefined;
   return v?.kind === "stud" || (config.variant as string) === "murder5";

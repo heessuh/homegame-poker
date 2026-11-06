@@ -5,6 +5,8 @@ Every deck at a Mocha Poker table is a uniform Fisher–Yates shuffle of the 52 
 * a secret **server seed**, committed to (by hash) *before* anyone could know the hand, and
 * a **client seed** from each player, chosen in the player's browser *after* seeing that commitment.
 
+**What the proof reveals.** The check needs the whole shuffled deck, so once a hand is over the record shows every card in the deck, including the cards of players who folded and, in board games, the order cards were dealt. Players are told this on the waiting screen and in the player guide. A mode that withholds the deck would give up independent full-deck verification, so it is not built (see the roadmap).
+
 The server cannot pick a convenient seed after seeing the players' seeds (the hash is already public), and no player can steer the result alone (the server seed is secret until the hand ends). After each hand the server reveals its seed, and anyone can recompute the deck. The "Verify fairness" button in Last hand and History does exactly that in your browser.
 
 ## Protocol

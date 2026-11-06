@@ -210,7 +210,7 @@ async function makeTable(g, ctx, variant, n, patch = {}, opts = {}) {
     clients.push(c);
   }
   const H = clients[0];
-  H.s.emit("host:config", { variant, maxSeats: 8, ...patch });
+  H.s.emit("host:config", { variant, maxSeats: 8, awardMode: "host", ...patch });
   const cfgOk = await until(() => H.v.config.variant === variant && !H.v.pendingConfig, 5000);
   if (!cfgOk) throw new Error(`config not applied: ${H.errors.join("; ")}`);
   clients.forEach((c, i) => c.s.emit("sit", { seat: i, buyIn }));

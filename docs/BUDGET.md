@@ -33,6 +33,8 @@ To raise or lower the limit, for example to $10:
 fly secrets set BUDGET_LIMIT_USD=10 -a mochapoker
 ```
 
+Send the token in an `Authorization: Bearer <token>` header (not in the URL, where it would be logged). The old `?token=` form still works but is deprecated.
+
 Setting a secret restarts the server, which lifts the pause if the new limit is above this month’s spend.
 
 ## Setup
