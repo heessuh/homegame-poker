@@ -35,6 +35,7 @@ import {
   type SeatView,
   type TableConfig,
   type TableView,
+  type BlindLevel,
   type TournamentConfig,
   type TournamentStanding,
   type TournamentView,
@@ -946,7 +947,10 @@ export class Table {
         throw new UserError(`Level ${i + 1}: blinds must be whole numbers, big blind at least the small blind.`);
       }
       if (!isInt(l.minutes) || l.minutes < 1 || l.minutes > 120) throw new UserError(`Level ${i + 1}: minutes must be 1 to 120.`);
+      if (l.isBreak !== undefined && typeof l.isBreak !== "boolean") throw new UserError(`Level ${i + 1}: invalid break setting.`);
     }
+    if (tc.levels[0]!.isBreak) throw new UserError("The first level cannot be a break.");
+    if (tc.levels[tc.levels.length - 1]!.isBreak) throw new UserError("The last level cannot be a break, because it repeats forever.");
     if (!isInt(tc.lateRegLevels) || tc.lateRegLevels < 0 || tc.lateRegLevels > tc.levels.length) {
       throw new UserError("Late registration levels must be from 0 to the number of levels.");
     }
@@ -1238,8 +1242,13 @@ export class Table {
     this.onChange();
   }
 
+  /** True while a tournament break level is running: no new hands are dealt. */
+  private onBreak(): boolean {
+    return this.isTourney() && this.t?.status === "running" && !!this.levelAt(this.t.levelIndex).isBreak;
+  }
+
   private maybeSchedule(): void {
-    if (this.budgetNotice !== null) return;
+    if (this.budgetNotice !== null || this.onBreak()) return;
     if (this.status !== "playing" || this.handOpen() || this.startTimer !== null) return;
     if (this.isTourney() && this.t?.status !== "running") return;
     if (this.eligible().length < 2) return;
@@ -1252,7 +1261,7 @@ export class Table {
   }
 
   private beginHand(): void {
-    if (this.budgetNotice !== null) return;
+    if (this.budgetNotice !== null || this.onBreak()) return;
     if (this.status !== "playing" || this.handOpen()) return;
     if (this.isTourney() && this.t?.status !== "running") return;
     if (this.eligible().length < 2) return;
@@ -1705,7 +1714,7 @@ export class Table {
     return (this.t ??= this.newTourney());
   }
 
-  private levelAt(i: number): { smallBlind: number; bigBlind: number; minutes: number } {
+  private levelAt(i: number): BlindLevel {
     const lv = this.config.tournament.levels;
     return lv[Math.max(0, Math.min(i, lv.length - 1))]!;
   }
@@ -1792,16 +1801,44 @@ export class Table {
     if (!t || t.status !== "running" || t.levelEndsAt === null) return;
     const last = this.config.tournament.levels.length - 1;
     const idx = Math.min(t.levelIndex + 1, last);
-    t.levelsCompleted++;
+    if (!this.levelAt(t.levelIndex).isBreak) t.levelsCompleted++; // breaks do not use up late registration
     if (idx !== t.levelIndex) {
       t.levelIndex = idx;
-      const l = this.levelAt(idx);
-      this.addLog(`Level ${idx + 1}: ${l.smallBlind}/${l.bigBlind}`);
+      this.logLevel(idx);
     }
     t.levelRemainingMs = this.levelAt(idx).minutes * 60_000;
     t.levelEndsAt = this.now() + t.levelRemainingMs;
     this.armLevelTimer();
     this.changed();
+  }
+
+  private logLevel(idx: number, suffix = ""): void {
+    const l = this.levelAt(idx);
+    this.addLog(l.isBreak ? `Break: ${l.minutes} minutes, no hands until it ends${suffix}` : `Level ${idx + 1}: ${l.smallBlind}/${l.bigBlind}${suffix}`);
+  }
+
+  /** Replaces the blind levels while a tournament runs. The current level keeps its clock and whether it is a break. */
+  hostTournamentLevels(playerId: string, levels: unknown): void {
+    this.asHost(playerId, "tournamentLevels", (host, rec) => {
+      const t = this.runningTourney();
+      if (!Array.isArray(levels)) throw new UserError("Invalid request.");
+      const clean: BlindLevel[] = levels.map((l: unknown) => {
+        const o = (l && typeof l === "object" ? l : {}) as Record<string, unknown>;
+        return { smallBlind: o.smallBlind as number, bigBlind: o.bigBlind as number, minutes: o.minutes as number, ...(o.isBreak === true ? { isBreak: true } : {}) };
+      });
+      if (clean.length <= t.levelIndex) throw new UserError("Keep the level that is being played now and every level before it.");
+      const next: TournamentConfig = { ...this.config.tournament, levels: clean };
+      this.validateTournament(next);
+      if (!!clean[t.levelIndex]!.isBreak !== !!this.levelAt(t.levelIndex).isBreak) throw new UserError("The level being played now cannot change between a break and a normal level.");
+      const before = this.config.tournament.levels;
+      this.config = { ...this.config, tournament: next };
+      if (this.pendingConfig) this.pendingConfig = { ...this.pendingConfig, tournament: { ...this.pendingConfig.tournament, levels: clean.map((l) => ({ ...l })) } };
+      rec(`${host.name} changed the blind levels during the tournament (${before.length} to ${clean.length} levels, applies from the next hand)`, {
+        before: before.map((l) => ({ ...l })), after: clean.map((l) => ({ ...l })), currentLevel: t.levelIndex + 1,
+      });
+      this.addLog("The host changed the blind levels (applies from the next hand)");
+      this.changed();
+    });
   }
 
   private runningTourney(): TourneyState {
@@ -1828,7 +1865,7 @@ export class Table {
       this.armLevelTimer();
     }
     const l = this.levelAt(idx);
-    rec(`${host.name} moved the blinds from level ${fromLevel + 1} to level ${idx + 1} (${l.smallBlind}/${l.bigBlind}, applies next hand)`, {
+    rec(`${host.name} moved the blinds from level ${fromLevel + 1} to level ${idx + 1} (${l.isBreak ? "break" : `${l.smallBlind}/${l.bigBlind}`}, applies next hand)`, {
       fromLevel: fromLevel + 1, toLevel: idx + 1, smallBlind: l.smallBlind, bigBlind: l.bigBlind,
     });
     this.addLog(`The host moved to level ${idx + 1}: ${l.smallBlind}/${l.bigBlind} (applies next hand)`);

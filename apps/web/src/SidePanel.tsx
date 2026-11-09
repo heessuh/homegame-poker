@@ -14,6 +14,24 @@ import { Standings, TournamentEditor, tournamentValid } from "./Tournament";
 
 export type Tab = "log" | "ledger" | "last" | "history" | "standings" | "dealer" | "host" | "fairness";
 
+/** While a tournament runs: change the blinds, level lengths and breaks of the levels still to come. */
+function LiveLevels({ view, send }: { view: TableView; send: Send }) {
+  const serverLevels = view.config.tournament.levels;
+  const key = JSON.stringify(serverLevels);
+  const [levels, setLevels] = useState(serverLevels);
+  useEffect(() => setLevels(serverLevels), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cur = view.tournament?.levelIndex ?? 0;
+  const tc = { ...view.config.tournament, levels };
+  const changed = JSON.stringify(levels) !== key;
+  return (
+    <div>
+      <p className="muted small">The tournament is running. Starting stack and late registration are locked. You can change the levels still to come (and the blinds of the level being played, which apply from the next hand).</p>
+      <TournamentEditor value={tc} onChange={(t) => setLevels(t.levels)} lockedBefore={cur} levelsOnly />
+      <button className="btn small" disabled={!changed || !tournamentValid(tc)} onClick={() => send("host:tournamentLevels", { levels })}>Apply level changes</button>
+    </div>
+  );
+}
+
 export function SidePanel({ view, send, tab, setTab }: { view: TableView; send: Send; tab: Tab; setTab: (t: Tab) => void }) {
   const REVIEW: Tab[] = ["history", "fairness", "dealer"];
   const inReview = REVIEW.includes(tab);
@@ -401,7 +419,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
         </label>
       </div>
       {draft.mode === "tournament" && (running
-        ? <p className="muted small">The tournament is running; settings are locked.</p>
+        ? <LiveLevels view={view} send={send} />
         : <TournamentEditor value={draft.tournament} onChange={(t) => setDraft({ ...draft, tournament: t })} />)}
       {!running && (
         <button className="btn small" disabled={modeSame || (draft.mode === "tournament" && !tournamentValid(draft.tournament))}

@@ -71,6 +71,8 @@ export interface BlindLevel {
   smallBlind: number;
   bigBlind: number;
   minutes: number; // 1..120
+  /** A break: no hands are dealt while it runs, the clock keeps going, and it does not count toward late registration. Blinds are ignored. */
+  isBreak?: boolean;
 }
 
 export interface TournamentConfig {
@@ -387,6 +389,8 @@ export interface ClientToServerEvents {
   /** Hand out a pending pot. Amounts are non-negative integers that must sum to pendingAward.amount. */
   "host:award": (p: { awards: { playerId: string; amount: number }[]; reason?: string }) => void;
   "host:setLocked": (p: { locked: boolean }) => void;
+  /** While a tournament runs: replace the blind levels (the current level keeps its clock and its break/not-break kind). */
+  "host:tournamentLevels": (p: { levels: BlindLevel[] }) => void;
   /** Move chips from one player's stack to another's. Applied at once between hands, queued during a hand. */
   "host:transfer": (p: { fromPlayerId: string; toPlayerId: string; amount: number }) => void;
   "host:playerTimer": (p: { playerId: string; seconds: number | null }) => void; // null = table default, 0 = no limit, else 10..300
