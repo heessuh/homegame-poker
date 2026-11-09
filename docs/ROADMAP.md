@@ -14,7 +14,7 @@ Last updated November 6, 2026. The site is live at https://mochapoker.fly.dev. S
 - [x] Dealer can shuffle seats (queued until the hand ends if one is running)
 - [x] Table fits one screen on phones and desktops
 - [x] Host controls, action timers, reconnecting, host handoff
-- [x] Tournaments
+- [x] Tournaments, with editable level lengths (also while running) and scheduled breaks
 - [x] Chip ledger (buy-ins, rebuys, cash-outs) and hand history
 - [x] Table UI for phones and desktops
 - [x] Tables saved on a Fly volume, so games survive restarts
@@ -42,6 +42,7 @@ Last updated November 6, 2026. The site is live at https://mochapoker.fly.dev. S
 - [x] $5 monthly budget guardrail with email alerts ([BUDGET.md](BUDGET.md))
 
 ## Not built yet
+- [ ] Tournament antes, rebuys and add-ons
 - [ ] Co-host and host-approval for joiners (the lock covers the basic case)
 - [ ] Revocable invite links and server-issued player credentials scoped to one table
 - [ ] A “muck-private” mode that withholds the deck from players (gives up independent full-deck verification)

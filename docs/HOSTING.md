@@ -63,11 +63,13 @@ Under **Settings**, **Pot awarding** has two modes:
 ## Tournaments
 
 1. In the **Host** tab, set **Mode** to **Tournament**.
-2. Pick a preset: **Turbo** (8-minute levels), **Standard** (15-minute levels), or **Deep** (20-minute levels). Or edit the starting stack, the late registration levels, and the blind-level table yourself.
+2. Pick a preset: **Turbo** (8-minute levels), **Standard** (15-minute levels), or **Deep** (20-minute levels). Or edit the starting stack, the late registration levels, and the blind-level table yourself. Each level has its own small blind, big blind and length (1 to 120 minutes), so you can mix lengths. **Set every level to (minutes)** applies one length to all the normal levels at once. The ☕ button inserts a **break** after a level.
 3. Click **Apply**, then **Start game**. Everyone is re-stacked to the starting stack.
 
 While a tournament runs:
 
+- **Edit the levels still to come.** The Host tab shows the level table with the levels already played locked. Change blinds, level lengths, add or remove levels, or insert breaks, then click **Apply level changes**. The level being played keeps its clock; its blinds can change but apply from the next hand. You cannot turn the current level into a break or remove it. Every change is recorded in the dealer log.
+- **Breaks** stop new hands while they run (a hand already in progress finishes), the clock keeps counting down, and a break does not use up late registration. The first and last level cannot be breaks.
 - **Pause** also pauses the level clock.
 - **Level −/+** and **Clock −1/+1 min** let you adjust the level and the clock.
 - Players who stand up during a tournament are counted as eliminated.

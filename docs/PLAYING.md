@@ -92,7 +92,7 @@ In Hold’em and Omaha cash games, if you sit down mid-game or miss the big blin
 If the host runs a tournament instead of a cash game:
 
 - You start with the tournament’s starting stack. You don’t pick a buy-in, and there are no rebuys.
-- The level clock shows the current blinds, a countdown, and the next level. Blinds go up at the next hand after the clock runs out.
+- The level clock shows the current blinds, a countdown, and the next level. Blinds go up at the next hand after the clock runs out. During a scheduled break no hands are dealt; the clock shows when play resumes. The host can change the levels still to come during the tournament.
 - When you lose all your chips, you’re out and you get a finishing place.
 
 ## The Log, Last hand, Ledger, Review, and Standings tabs

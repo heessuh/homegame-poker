@@ -26,7 +26,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
   const stud = isStud(config);
   const points = VARIANTS[config.variant]?.scoring === "points";
   const seatedCount = view.seats.filter(Boolean).length;
-  const waitingTitle = seatedCount < 2
+  const waitingTitle = view.status === "playing" ? (view.tournament?.level.isBreak ? "Break: play resumes soon" : "Next hand starting…") : seatedCount < 2
     ? `${seatedCount} of 2 seated · ${view.you.seat === null ? "take a seat" : view.you.isHost ? "invite a friend" : "waiting for a player"}`
     : view.you.isHost ? "Host: press Start (Host tab)" : "Waiting for the host to start";
   const board = hand?.board ?? [];

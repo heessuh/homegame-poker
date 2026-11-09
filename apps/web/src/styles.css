@@ -447,7 +447,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .levels input { width: 100%; padding: 4px 6px; }
 .levels td:first-child { width: 22px; color: var(--muted); }
 .lvact { white-space: nowrap; text-align: right; }
-.lvact .btn { padding: 2px 6px; margin-left: 2px; }
+.lvact .btn { padding: 2px 5px; margin-left: 1px; }
+.levels td:nth-child(4) input { min-width: 44px; }
 
 /* stud (5-Murder) */
 .studcards { display: flex; align-items: flex-start; justify-content: center; gap: 4px; margin-bottom: 8px; position: relative; z-index: 1; }
@@ -584,3 +585,5 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 
 .buildinfo { margin-top: 24px; font-size: 12px; opacity: 0.6; text-align: center; }
 .buildinfo a { color: inherit; }
+
+.teditor tr.brk { background: rgba(227, 183, 101, .12); }

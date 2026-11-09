@@ -508,6 +508,12 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       table.hostAward(playerId, p.awards, p.reason);
     }));
 
+    on("host:tournamentLevels", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.hostTournamentLevels(playerId, p.levels);
+    }));
+
     on("host:setLocked", handle((raw) => {
       const p = obj(raw);
       const { table, playerId } = ctx();

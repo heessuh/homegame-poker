@@ -328,6 +328,7 @@ describe("dealer ledger: every host path is logged", () => {
     hostAddTime: () => { const r = hand(); return { r, run: (h) => r.table.hostAddTime(h, actorOf(r), 15) }; },
     hostForceTimeout: () => { const r = hand(); return { r, run: (h) => r.table.hostForceTimeout(h, actorOf(r)) }; },
     hostTournamentLevel: () => { const r = tour(); return { r, run: (h) => r.table.hostTournamentLevel(h, 1) }; },
+    hostTournamentLevels: () => { const r = tour(); return { r, run: (h) => r.table.hostTournamentLevels(h, [{ smallBlind: 50, bigBlind: 100, minutes: 2 }, { smallBlind: 100, bigBlind: 200, minutes: 2 }]) }; },
     hostTournamentClock: () => { const r = tour(); return { r, run: (h) => r.table.hostTournamentClock(h, 5000) }; },
     hostSetLocked: () => { const r = rig(2); return { r, run: (h) => r.table.hostSetLocked(h, true) }; },
     hostShuffleSeats: () => { const r = rig(2); seatAll(r); return { r, run: (h) => r.table.hostShuffleSeats(h) }; },
