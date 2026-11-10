@@ -186,7 +186,7 @@ const HISTORY_CAP = 2000;
 const SNAPSHOT_VERSION = 1;
 const FIRST_HAND_DELAY = 1000;
 const SHOWDOWN_DELAY = 4000;
-const FOLD_DELAY = 2500;
+const FOLD_DELAY = 3500; // long enough to read the rabbit-hunt cards
 const MIN_DELAY = 1000;
 const HOST_HANDOFF_MS = 60_000;
 

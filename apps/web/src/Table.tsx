@@ -3,7 +3,7 @@ import { VARIANTS, tkoPoints } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack } from "./CardView";
 import { CardFace } from "./CardView";
-import { STUD_STREETS, fmt, isStud, rabbitCards, totalPot } from "./util";
+import { STUD_STREETS, fmt, gameLabel, isStud, rabbitCards, totalPot } from "./util";
 import { useNow } from "./ui";
 import { ChipStack } from "./Chips";
 import { useTableMotion } from "./motion";
@@ -28,7 +28,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
   const seatedCount = view.seats.filter(Boolean).length;
   const waitingTitle = view.status === "playing" ? (view.tournament?.level.isBreak ? "Break: play resumes soon" : "Next hand starting…") : seatedCount < 2
     ? `${seatedCount} of 2 seated · ${view.you.seat === null ? "take a seat" : view.you.isHost ? "invite a friend" : "waiting for a player"}`
-    : view.you.isHost ? "Host: press Start (Host tab)" : "Waiting for the host to start";
+    : view.you.isHost ? "Host: press Start game" : "Waiting for the host to start";
   const board = hand?.board ?? [];
   // Rabbit hunt: once the hand has ended early, show the cards that would have come (dimmed, in the empty board slots).
   const rabbit = hand && view.lastHand && view.lastHand.handNumber === hand.handNumber ? rabbitCards(view.lastHand) : [];
@@ -109,7 +109,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
           <div className="waiting">
             <div className="big">{view.status === "paused" ? "Paused" : waitingTitle}</div>
             <div className="muted">
-              {VARIANTS[config.variant]?.name ?? config.variant} ·{" "}
+              {VARIANTS[config.variant] ? gameLabel(VARIANTS[config.variant], config) : config.variant} ·{" "}
               {isStud(config)
                 ? `Ante ${fmt(config.stud.ante)} · bets up to ${fmt(config.stud.maxBet)}, last round ${fmt(config.stud.maxBetLastRound)}`
                 : `${fmt(config.smallBlind)}/${fmt(config.bigBlind)}`}
