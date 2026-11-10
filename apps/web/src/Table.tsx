@@ -3,7 +3,7 @@ import { VARIANTS, tkoPoints } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack } from "./CardView";
 import { CardFace } from "./CardView";
-import { STUD_STREETS, fmt, isStud, totalPot } from "./util";
+import { STUD_STREETS, fmt, isStud, rabbitCards, totalPot } from "./util";
 import { useNow } from "./ui";
 import { ChipStack } from "./Chips";
 import { useTableMotion } from "./motion";
@@ -30,6 +30,8 @@ export function Table({ view, onSit, onMe, send }: Props) {
     ? `${seatedCount} of 2 seated · ${view.you.seat === null ? "take a seat" : view.you.isHost ? "invite a friend" : "waiting for a player"}`
     : view.you.isHost ? "Host: press Start (Host tab)" : "Waiting for the host to start";
   const board = hand?.board ?? [];
+  // Rabbit hunt: once the hand has ended early, show the cards that would have come (dimmed, in the empty board slots).
+  const rabbit = hand && view.lastHand && view.lastHand.handNumber === hand.handNumber ? rabbitCards(view.lastHand) : [];
   const wrapRef = useRef<HTMLDivElement>(null);
   const winnersByPlayer = new Map<string, WinnerView[]>();
   // Winners about to be paid: the final result if the server sent one, else the suggested split of the pending award.
@@ -92,10 +94,13 @@ export function Table({ view, onSit, onMe, send }: Props) {
               <div className="board">
                 {Array.from({ length: 5 }, (_, i) => {
                   const c = hand.board[i];
-                  return c ? <CardFace key={i} card={c} size="md" /> : <div key={i} className="card slot md" />;
+                  if (c) return <CardFace key={i} card={c} size="md" />;
+                  const rc = rabbit[i - hand.board.length];
+                  return rc ? <CardFace key={i} card={rc} size="md" className="rabbit" /> : <div key={i} className="card slot md" />;
                 })}
               </div>
             )}
+            {!stud && rabbit.length > 0 && <div className="rabbitlabel muted small">Would have come</div>}
             {stud && studStatus && <div className="studstatus">{studStatus}</div>}
             <div className="phase">Hand #{hand.handNumber} · {stud ? (STUD_STREETS[hand.phase] ?? hand.phase) : hand.phase}</div>
             {pa && <AwardAnnounce view={view} winners={shownWinners} />}

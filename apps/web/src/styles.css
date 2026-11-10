@@ -587,3 +587,6 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 .buildinfo a { color: inherit; }
 
 .teditor tr.brk { background: rgba(227, 183, 101, .12); }
+
+.card.rabbit { opacity: .55; outline: 1px dashed rgba(227,183,101,.7); outline-offset: -1px; }
+.rabbitlabel { text-align: center; margin-top: .15rem; }

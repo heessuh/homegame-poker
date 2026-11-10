@@ -79,6 +79,24 @@ export function totalPot(view: TableView): number {
 }
 
 /** Stud games (5-Murder). Defensive: works before the engine build knows the variant. */
+/**
+ * Rabbit hunt: the board cards that never came because the hand ended early. The deck is revealed to everyone when a
+ * hand ends, so this shows nothing the hand record does not already hold. Same deal layout as the engine's luck report.
+ */
+export function rabbitCards(rec: TableView["lastHand"]): Card[] {
+  if (!rec) return [];
+  const v = VARIANTS[rec.variant];
+  const order = rec.luck?.dealOrder;
+  const deck = rec.reveal?.deck;
+  if (!v || v.kind === "stud" || v.scoring === "points" || rec.luck?.v !== 1 || !Array.isArray(order) || !Array.isArray(deck)) return [];
+  const p = order.length * v.holeCards;
+  if (deck.length < p + 8) return [];
+  const full = [deck[p + 1]!, deck[p + 2]!, deck[p + 3]!, deck[p + 5]!, deck[p + 7]!];
+  const dealt = rec.board ?? [];
+  if (dealt.length >= 5 || dealt.some((c, i) => c !== full[i])) return []; // any mismatch: show nothing rather than guess
+  return full.slice(dealt.length);
+}
+
 /** Plain-language rules for the table, shown before anyone sits down. */
 export function rulesLines(config: TableConfig, dollars: boolean): string[] {
   const m = (n: number) => fmtWith(n, dollars);
