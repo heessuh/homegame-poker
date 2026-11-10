@@ -17,7 +17,7 @@ import { Avatar, AvatarPicker, Modal, MoneyInput, Wordmark, loadAvatar, saveAvat
 import { newClientSeed, rememberSeed } from "./fairness";
 import { FairWatch } from "./FairBanner";
 import { BuildInfo } from "./BuildInfo";
-import { fmt, isStud, rulesLines, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
+import { fmt, gameLabel, isStud, rulesLines, getPlayerToken, setMoneyMode, randomId, storeGet, storeSet } from "./util";
 
 export type Send = <E extends keyof ClientToServerEvents>(ev: E, ...args: Parameters<ClientToServerEvents[E]>) => void;
 
@@ -78,7 +78,7 @@ function Landing() {
   return (
     <main className="landing">
       <h1><Wordmark size="lg" /></h1>
-      <p className="muted">A private table for friends. Hold’em and Omaha, no accounts.</p>
+      <p className="muted">A private table for friends. Hold’em, Omaha and more, cash games or tournaments. No accounts.</p>
       <button className="btn call big" onClick={create}>Create a table</button>
       <div className="or">or</div>
       <form className="joinrow" onSubmit={(e) => { e.preventDefault(); join(); }}>
@@ -232,6 +232,21 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
   const [tab, setTab] = useState<Tab>("log");
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [pickAvatar, setPickAvatar] = useState(false);
+  // The header wraps to two rows on phones, so the menu panel starts below its real height, not a fixed 54px.
+  const roomRef = useRef<HTMLDivElement>(null);
+  const topRef = useRef<HTMLElement>(null);
+  const hasBanner = !!dealerWatch.alert || !!view.siteNotice;
+  useEffect(() => {
+    const top = topRef.current, room = roomRef.current;
+    if (!top || !room) return;
+    const set = () => room.style.setProperty("--top-h", `${Math.max(0, Math.round(top.getBoundingClientRect().bottom))}px`);
+    set();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(set);
+    ro.observe(top);
+    return () => ro.disconnect();
+  }, [open, hasBanner]);
+  const seatedCount = view.seats.filter(Boolean).length;
   const me = view.you.seat !== null ? view.seats[view.you.seat] : null;
   const cfg = view.config ?? DEFAULT_CONFIG;
   const isTourney = cfg.mode === "tournament";
@@ -245,7 +260,7 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
   };
 
   return (
-    <div className={`room ${open ? "panel-open" : ""}`}>
+    <div ref={roomRef} className={`room ${open ? "panel-open" : ""}`}>
       {dealerWatch.alert && (
         <div className="ledger-banner" role="alert">
           <span><b>Dealer log warning:</b> {dealerWatch.alert} The host’s record of actions may have been altered.</span>
@@ -253,7 +268,7 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
         </div>
       )}
       {view.siteNotice && <div className="site-notice" role="status">{view.siteNotice}</div>}
-      <header className="top">
+      <header className="top" ref={topRef}>
         <div className="title">
           <Wordmark /> <code>{view.tableId}</code>
           <span className={`pill ${view.status}`}>{view.status}</span>
@@ -261,9 +276,9 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
           {view.you.isHost ? (
             <select className="gamepick" value={cfg.variant} aria-label="Game"
               onChange={(e) => send("host:config", { variant: e.target.value as VariantId })}>
-              {Object.values(VARIANTS).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              {Object.values(VARIANTS).map((v) => <option key={v.id} value={v.id}>{gameLabel(v, cfg)}</option>)}
             </select>
-          ) : <span className="gamename">{VARIANTS[cfg.variant]?.name ?? cfg.variant}</span>}
+          ) : <span className="gamename">{VARIANTS[cfg.variant] ? gameLabel(VARIANTS[cfg.variant], cfg) : cfg.variant}</span>}
           {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant]?.name ?? pendingVariant}</span>}
         </div>
         <div className="top-actions">
@@ -282,6 +297,9 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
             </details>
           )}
           <Table view={view} onSit={setSitSeat} onMe={() => setPickAvatar(true)} send={send} />
+          {view.you.isHost && view.status === "waiting" && seatedCount >= 2 && (
+            <div className="startrow"><button className="btn call big" onClick={() => send("host:start")}>Start game</button></div>
+          )}
           {view.you.isHost && view.pendingAward && <AwardPanel view={view} pa={view.pendingAward} send={send} />}
           <ActionBar view={view} onAction={(a) => send("action", a)} onExtend={() => send("extendTime")} />
           {me && !isTourney && me.stack === 0 && !me.inHand && (

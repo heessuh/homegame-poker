@@ -121,6 +121,12 @@ export function isStud(config: Pick<TableConfig, "variant">): boolean {
   return v?.kind === "stud" || (config.variant as string) === "murder5";
 }
 
+/** Game name for the header. With the house limit on, "No-Limit" would be wrong, so it shows the limit instead. */
+export function gameLabel(v: { name: string; kind?: string }, config: Pick<TableConfig, "mode" | "money" | "houseLimit">): string {
+  if (v.kind === "stud" || config.mode !== "cash" || !config.houseLimit?.enabled) return v.name;
+  return `${v.name.replace(/^(No-Limit|Pot-Limit) /, "")} · ${fmtWith(config.houseLimit.maxBet, config.money === "cents").replace(/\.00$/, "")} limit`;
+}
+
 export const STUD_STREETS: Partial<Record<Phase, string>> = {
   "2nd": "2nd card", "3rd": "3rd card", "4th": "4th card", "5th": "5th card",
   draw1: "Exchange 1", draw2: "Exchange 2", declare: "Declare",

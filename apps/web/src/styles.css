@@ -98,7 +98,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); }
 .stage { padding: 10px 8px 10px; min-width: 0; }
 .side { display: none; }
-.panel-open .side { display: block; position: fixed; inset: 54px 0 0 0; z-index: 20; background: var(--panel); overflow: auto; animation: fadeUp .25s var(--ease); }
+.startrow { display: flex; justify-content: center; margin: 12px 0 4px; }
+.panel-open .side { display: block; position: fixed; inset: var(--top-h, 54px) 0 0 0; z-index: 20; background: var(--panel); overflow: auto; animation: fadeUp .25s var(--ease); }
 @media (min-width: 960px) {
   .main { grid-template-columns: minmax(0, 1fr) 372px; }
   .side, .panel-open .side { display: block; position: sticky; top: 54px; inset: auto; border-left: 1px solid #000; background: linear-gradient(180deg, #2a1c14, #21160f); max-height: calc(100vh - 54px); overflow: auto; box-shadow: -8px 0 24px rgba(0, 0, 0, .35); animation: none; }

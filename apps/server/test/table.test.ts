@@ -109,7 +109,7 @@ describe("hands", () => {
     r.table.hostStart(r.ids[0]!);
     r.clock.advance(1000);
     foldAround(r);
-    r.clock.advance(2499);
+    r.clock.advance(3499);
     expect(r.table.viewFor(r.ids[0]!).hand!.handNumber).toBe(1);
     r.clock.advance(1);
     expect(r.table.viewFor(r.ids[0]!).hand!.handNumber).toBe(2);
