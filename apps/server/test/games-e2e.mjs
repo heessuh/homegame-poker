@@ -181,7 +181,8 @@ function connect(ctx, g, tableId, name, token, opts = {}) {
     if (c.auto) {
       const l = v.hand?.legal;
       if (!l || v.hand.phase === "complete") return;
-      const sig = sigOf(v);
+      // Decision point only: an unrelated change (a re-buy, a seat change) while this action is in flight must not make the bot act twice.
+      const sig = JSON.stringify([v.hand.handNumber, v.hand.phase, v.hand.stage, v.hand.toActSeat, l]);
       if (sig === c.lastSig) return;
       c.lastSig = sig;
       s.emit("action", chooseAction(l, c.auto));
