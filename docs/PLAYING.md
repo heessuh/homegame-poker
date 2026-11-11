@@ -76,7 +76,9 @@ By default the server awards every pot based on the cards. Some tables let the d
 - **Pot-Limit Omaha Hi/Lo (8 or better)** with 4 hole cards, up to 10 players.
 - **5-Card Pot-Limit Omaha Hi/Lo (8 or better)**, up to 8 players.
 - **Pot-Limit Omaha Low**, 8 or better or with no qualifier, up to 10 players.
-- **FYST**, an Omaha game where the second-best low wins, up to 10 players.
+- **FYST**, Texas Hold’em where the second-best hand wins, up to 10 players.
+- **Double FYST**, 4-card Omaha where the second-best hand wins, up to 10 players.
+- **Dumb & Dumber**, 4-card Omaha where everyone plays their best hand and the lowest one wins, up to 10 players.
 - **SMD**, 4-card (up to 10 players) or 5-card (up to 8): Omaha Hi/Lo with no low qualifier, and you can use 2 or 3 of your own cards for each hand.
 - **TKO**, 4-card (up to 10 players) or 5-card (up to 8): no poker hands, just points. Board cards that match a card in your hand knock that card out. The most and fewest points split the pot.
 - **5-Murder**, up to 8 players.

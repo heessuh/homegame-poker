@@ -345,7 +345,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
       <div className="form">
         <label>Variant
           <select value={draft.variant} onChange={(e) => setDraft({ ...draft, variant: e.target.value as VariantId })}>
-            {Object.values(VARIANTS).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            {Object.values(VARIANTS).filter((v) => !v.retired || v.id === draft.variant).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
         </label>
         <label className="full">Money display

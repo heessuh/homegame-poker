@@ -625,7 +625,15 @@ function resolveShowdown(s: HandState): void {
       }
       return;
     }
-    const highWinners = bestOf((p) => highs.get(p.playerId), true);
+    const hs = (p: HandPlayer): number => (highs.get(p.playerId) as HighResult).score;
+    let highWinners = bestOf((p) => highs.get(p.playerId), v.highWinner !== "worst");
+    if (v.highWinner === "second" && highWinners.length < eligible.length) {
+      // FYST: skip the best group; the next-best group wins. If everyone ties, they split.
+      const top = hs(highWinners[0]!);
+      const rest = eligible.filter((p) => hs(p) !== top);
+      const next = Math.max(...rest.map(hs));
+      highWinners = rest.filter((p) => hs(p) === next);
+    }
     const lowWinners = mode === "hilo" ? bestOf((p) => lows.get(p.playerId), false) : [];
     const split = mode === "hilo" && lowWinners.length > 0;
     const highAmount = split ? Math.ceil(pot.amount / 2) : pot.amount;

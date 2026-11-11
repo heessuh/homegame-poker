@@ -902,3 +902,109 @@ describe("low-only Omaha games", () => {
     expect(out.winners).toEqual([{ playerId: "p1", amount: 5, potIndex: 0, half: "whole", handName: null }]);
   });
 });
+
+// ---------- FYST, Double FYST, Dumb & Dumber ----------
+
+describe("second-best and lowest-best high games", () => {
+  const BOARD: Card[] = ["2c", "7d", "9h", "Js", "Kd"];
+  const limp2 = (s: HandState) => checkdown(seq(s, [[1, CALL], [2, CHECK]]));
+  const limp3 = (s: HandState) => checkdown(seq(s, [[1, CALL], [2, CALL], [3, CHECK]]));
+  const limp4 = (s: HandState) => checkdown(seq(s, [[4, CALL], [1, CALL], [2, CALL], [3, CHECK]]));
+  const s3 = { 1: 100, 2: 100, 3: 100 };
+  const pay = (out: { winners: { playerId: string; amount: number }[] }) => out.winners.map((w) => [w.playerId, w.amount]).sort();
+
+  // Hold'em: three kings (best), three jacks (second), ace high (worst)
+  const HK: Card[] = ["Kh", "Kc"], HJ: Card[] = ["Jh", "Jc"], HA: Card[] = ["Ah", "Qc"];
+  // Omaha (exactly two hole cards): the same three hands
+  const OK: Card[] = ["Kh", "Kc", "3s", "4s"], OJ: Card[] = ["Jh", "Jc", "3d", "4d"], OA: Card[] = ["Ah", "Qc", "5s", "6s"];
+
+  it("the new games deal the right number of cards", () => {
+    expect(VARIANTS["fyst-he"]).toMatchObject({ holeCards: 2, mustUseTwoHole: false, highWinner: "second" });
+    expect(VARIANTS["fyst-o"]).toMatchObject({ holeCards: 4, mustUseTwoHole: true, highWinner: "second" });
+    expect(VARIANTS.dumb).toMatchObject({ holeCards: 4, mustUseTwoHole: true, highWinner: "worst" });
+    expect(VARIANTS.fyst.retired).toBe(true);
+  });
+
+  it("FYST: the second-best Hold'em hand wins", () => {
+    const out = done(limp3(newHand({ variant: "fyst-he", stacks: s3, button: 1, holes: { 1: HK, 2: HJ, 3: HA }, board: BOARD })));
+    expect(out.winners).toHaveLength(1);
+    expect(out.winners[0]).toMatchObject({ playerId: "p2", amount: 6, half: "whole" });
+    expect(out.winners[0]!.handName).toMatch(/three/i);
+  });
+
+  it("FYST: heads-up the worse hand wins", () => {
+    const out = done(limp2(newHand({ variant: "fyst-he", stacks: { 1: 100, 2: 100 }, button: 1, holes: { 1: HK, 2: HA }, board: BOARD })));
+    expect(pay(out)).toEqual([["p2", 4]]);
+  });
+
+  it("FYST: a tie for best skips the whole tied group", () => {
+    const holes = { 1: ["Kh", "Qh"] as Card[], 2: ["Kc", "Qd"] as Card[], 3: ["Jh", "Tc"] as Card[], 4: ["3h", "4h"] as Card[] };
+    const out = done(limp4(newHand({ variant: "fyst-he", stacks: { 1: 100, 2: 100, 3: 100, 4: 100 }, button: 1, holes, board: BOARD })));
+    expect(pay(out)).toEqual([["p3", 8]]);
+  });
+
+  it("FYST: a tied second group splits", () => {
+    const holes = { 1: HK, 2: ["Ah", "Qc"] as Card[], 3: ["As", "Qd"] as Card[] };
+    const out = done(limp3(newHand({ variant: "fyst-he", stacks: s3, button: 1, holes, board: BOARD })));
+    expect(pay(out)).toEqual([["p2", 3], ["p3", 3]]);
+  });
+
+  it("FYST: when everyone ties, they split", () => {
+    const board: Card[] = ["Ac", "Kd", "Qh", "Js", "Td"];
+    const holes = { 1: ["2h", "3h"] as Card[], 2: ["2s", "3s"] as Card[], 3: ["4h", "5c"] as Card[] };
+    const out = done(limp3(newHand({ variant: "fyst-he", stacks: s3, button: 1, holes, board })));
+    expect(pay(out)).toEqual([["p1", 2], ["p2", 2], ["p3", 2]]);
+  });
+
+  it("FYST: a side pot with one eligible player goes to that player", () => {
+    let s = newHand({ variant: "fyst-he", stacks: { 1: 100, 2: 100, 3: 4 }, button: 1, holes: { 1: HA, 2: HK, 3: HJ }, board: BOARD });
+    s = seq(s, [[1, raise(6)], [2, CALL], [3, CALL]]);
+    s = seq(s, [[2, raise(8)], [1, FOLD]]);
+    const out = done(checkdown(s));
+    expect(out.winners[0]).toMatchObject({ playerId: "p3", amount: 12, potIndex: 0 }); // kings vs jacks: the worse of two wins
+    expect(out.winners[1]).toMatchObject({ playerId: "p2", amount: 4, potIndex: 1 });
+  });
+
+  it("FYST: a fold-out wins as usual", () => {
+    let s = newHand({ variant: "fyst-he", stacks: s3, button: 1 });
+    s = seq(s, [[1, raise(6)], [2, FOLD], [3, FOLD]]);
+    const out = done(s);
+    expect(out.winners).toHaveLength(1);
+    expect(out.winners[0]).toMatchObject({ playerId: "p1", half: "whole", handName: null });
+  });
+
+  it("Double FYST: the second-best Omaha hand wins", () => {
+    const out = done(limp3(newHand({ variant: "fyst-o", stacks: s3, button: 1, holes: { 1: OK, 2: OJ, 3: OA }, board: BOARD })));
+    expect(pay(out)).toEqual([["p2", 6]]);
+    expect(out.winners[0]!.handName).toMatch(/three/i);
+  });
+
+  it("Double FYST: hands use exactly two hole cards", () => {
+    // Four hearts on the board. One heart in the hole is not a flush in Omaha, so p1 has only a pair of aces.
+    // p2 (Q-T of hearts) has a flush, p3 three kings. Order: p2, p3, p1. Second best: p3.
+    const board: Card[] = ["2h", "7h", "9h", "Jh", "Kd"];
+    const holes = { 1: ["Ah", "Ac", "3s", "4s"] as Card[], 2: ["Qh", "Th", "3d", "4d"] as Card[], 3: ["Kc", "Ks", "5s", "6c"] as Card[] };
+    const out = done(limp3(newHand({ variant: "fyst-o", stacks: s3, button: 1, holes, board })));
+    expect(pay(out)).toEqual([["p3", 6]]);
+  });
+
+  it("Dumb & Dumber: the lowest best hand wins", () => {
+    const out = done(limp3(newHand({ variant: "dumb", stacks: s3, button: 1, holes: { 1: OK, 2: OJ, 3: OA }, board: BOARD })));
+    expect(pay(out)).toEqual([["p3", 6]]);
+    expect(out.winners[0]!.handName).toMatch(/high/i);
+  });
+
+  it("Dumb & Dumber: a player cannot play a worse hand than their best one", () => {
+    // p1 could show 3-4 for king high, but must play the three kings. p2's best is a pair of jacks, so p2 wins.
+    const holes = { 1: OK, 2: ["Jh", "Qc", "5s", "6s"] as Card[] };
+    const out = done(limp2(newHand({ variant: "dumb", stacks: { 1: 100, 2: 100 }, button: 1, holes, board: BOARD })));
+    expect(pay(out)).toEqual([["p2", 4]]);
+    expect(out.winners[0]!.handName).toMatch(/pair/i);
+  });
+
+  it("Dumb & Dumber: tied lowest hands split", () => {
+    const holes = { 1: OK, 2: OA, 3: ["As", "Qd", "5h", "6h"] as Card[] };
+    const out = done(limp3(newHand({ variant: "dumb", stacks: s3, button: 1, holes, board: BOARD })));
+    expect(pay(out)).toEqual([["p2", 3], ["p3", 3]]);
+  });
+});

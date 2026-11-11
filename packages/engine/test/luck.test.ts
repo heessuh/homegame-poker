@@ -62,7 +62,7 @@ const IDS = ["p0", "p1", "p2", "p3", "p4", "p5"];
 // ------------------------------------------------------------- reconstruction
 
 describe("luck: reconstructing the deal", () => {
-  for (const variant of ["nlhe", "plo4", "plo5", "plo4-8", "nlhe-hilo", "fyst"] as VariantId[]) {
+  for (const variant of ["nlhe", "plo4", "plo5", "plo4-8", "nlhe-hilo", "fyst", "fyst-he", "fyst-o", "dumb"] as VariantId[]) {
     it(`matches the cards actually dealt (${variant})`, () => {
       const r = rng(7);
       const ids = IDS.slice(0, VARIANTS[variant].maxPlayers >= 6 ? 6 : 4);
@@ -249,6 +249,19 @@ describe("luck: equity", () => {
     ]);
     expect(eq.mean[0]! + eq.mean[1]! + eq.mean[2]!).toBeCloseTo(500, 9);
     expect(eq.mean[0]!).toBeLessThanOrEqual(300);
+  });
+
+  it("pays the second-best hand in FYST and Double FYST, and the lowest best hand in Dumb & Dumber", () => {
+    const board = cards("2c 7d 9h Js Kd");
+    const pot = [{ amount: 600, eligiblePlayerIds: ["k", "j", "a"] }];
+    const he = [{ id: "k", hole: cards("Kh Kc") }, { id: "j", hole: cards("Jh Jc") }, { id: "a", hole: cards("Ah Qc") }];
+    const om = [{ id: "k", hole: cards("Kh Kc 3s 4s") }, { id: "j", hole: cards("Jh Jc 3d 4d") }, { id: "a", hole: cards("Ah Qc 5s 6s") }];
+    expect(runoutEquity("fyst-he", board, he, pot).mean).toEqual([0, 600, 0]);
+    expect(runoutEquity("fyst-o", board, om, pot).mean).toEqual([0, 600, 0]);
+    expect(runoutEquity("dumb", board, om, pot).mean).toEqual([0, 0, 600]);
+    expect(runoutEquity("plo4", board, om, pot).mean).toEqual([600, 0, 0]);
+    expect(bestHandCredits("dumb", om.map((h) => h.hole), board)).toEqual([0, 0, 1]);
+    expect(bestHandCredits("fyst-o", om.map((h) => h.hole), board)).toEqual([1, 0, 0]);
   });
 
   it("matches what the engine paid in simulated all-in hands (expected and actual both sum to the contested pots)", () => {

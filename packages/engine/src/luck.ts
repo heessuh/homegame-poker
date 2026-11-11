@@ -244,7 +244,13 @@ function addPotShares(v: Variant, elig: readonly number[], sc: readonly Scored[]
     else give(bestGroup(elig, high, true), amount);
     return;
   }
-  const hi = bestGroup(elig, high, true);
+  let hi = bestGroup(elig, high, v.highWinner !== "worst");
+  if (v.highWinner === "second" && hi.length < elig.length) {
+    const top = high(hi[0]!);
+    const rest = elig.filter((i) => high(i) !== top);
+    const next = Math.max(...rest.map(high));
+    hi = rest.filter((i) => high(i) === next);
+  }
   const lo = mode === "hilo" ? bestGroup(elig, low, false) : [];
   if (mode === "hilo" && lo.length > 0) {
     give(hi, amount / 2);
@@ -264,7 +270,7 @@ export function bestHandCredits(variantId: VariantId, holes: readonly (readonly 
   if (mode === "low") {
     group = bestGroup(all, (i) => sc[i]!.low, false);
     if (group.length === 0) group = bestGroup(all, (i) => sc[i]!.high, true);
-  } else group = bestGroup(all, (i) => sc[i]!.high, true);
+  } else group = bestGroup(all, (i) => sc[i]!.high, v.highWinner !== "worst"); // Dumb & Dumber: the lowest hand is the best one to hold
   const out = holes.map(() => 0);
   for (const i of group) out[i] = 1 / group.length;
   return out;

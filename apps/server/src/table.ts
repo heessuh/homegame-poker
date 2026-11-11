@@ -895,6 +895,7 @@ export class Table {
   private validateConfig(c: TableConfig): void {
     const v = VARIANTS[c.variant];
     if (!v) throw new UserError("Unknown game variant.");
+    if (v.retired && c.variant !== this.config.variant) throw new UserError("That game is no longer offered.");
     if (!isInt(c.smallBlind) || c.smallBlind <= 0 || !isInt(c.bigBlind) || c.bigBlind <= 0) throw new UserError("Blinds must be positive whole numbers.");
     if (c.bigBlind < c.smallBlind) throw new UserError("The big blind cannot be smaller than the small blind.");
     const maxCap = Math.min(10, v.maxPlayers);
