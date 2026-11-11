@@ -1,4 +1,4 @@
-export type VariantId = "nlhe" | "nlhe-hilo" | "plo4" | "plo5" | "plo4-8" | "plo5-8" | "plo4-lo8" | "plo4-lo" | "fyst" | "smd4" | "smd5" | "tko4" | "tko5" | "murder5";
+export type VariantId = "nlhe" | "nlhe-hilo" | "plo4" | "plo5" | "plo4-8" | "plo5-8" | "plo4-lo8" | "plo4-lo" | "fyst" | "fyst-he" | "fyst-o" | "dumb" | "smd4" | "smd5" | "tko4" | "tko5" | "murder5";
 
 /** Which hole cards a five-card hand must use: exactly 2 (true), any (false), or either 2 or 3 of them ("2or3"). */
 export type HoleRule = boolean | "2or3";
@@ -24,7 +24,14 @@ export interface Variant {
    * low among a pot's eligible players, the best high hand takes that pot instead.
    */
   split?: "high" | "hilo" | "low";
-  /** Low-only games: "best" (default) low wins, or "second": the second-best low group wins (FYST). */
+  /**
+   * High-only games: which high hand takes the pot. "best" (default); "second": the second-best group wins
+   * (FYST, Double FYST); "worst": every player plays their best hand and the lowest of those wins (Dumb & Dumber).
+   */
+  highWinner?: "best" | "second" | "worst";
+  /** No longer offered. Kept so old hand records still read and verify correctly. */
+  retired?: boolean;
+  /** Low-only games: "best" (default) low wins, or "second": the second-best low group wins (the old FYST). */
   lowWinner?: "best" | "second";
   /** "board" (default): community-card games. "stud": 5-Murder, see stud.ts. */
   kind?: "board" | "stud";
@@ -48,7 +55,10 @@ export const VARIANTS: Record<VariantId, Variant> = {
   "plo5-8": { id: "plo5-8", name: "5-Card Pot-Limit Omaha Hi/Lo (8 or better)", holeCards: 5, mustUseTwoHole: true, betting: "pot-limit", hiLo: true, maxPlayers: 8 },
   "plo4-lo8": { id: "plo4-lo8", name: "Pot-Limit Omaha Low (8 or better)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, split: "low", lowRule: "8-or-better", maxPlayers: 10 },
   "plo4-lo": { id: "plo4-lo", name: "Pot-Limit Omaha Low (no qualifier)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, split: "low", lowRule: "any", maxPlayers: 10 },
-  fyst: { id: "fyst", name: "FYST (Omaha, second-best low wins)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, split: "low", lowRule: "any", lowWinner: "second", maxPlayers: 10 },
+  fyst: { id: "fyst", name: "FYST, old rules (Omaha, second-best low wins)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, split: "low", lowRule: "any", lowWinner: "second", retired: true, maxPlayers: 10 },
+  "fyst-he": { id: "fyst-he", name: "FYST (Hold'em, second-best hand wins)", holeCards: 2, mustUseTwoHole: false, betting: "no-limit", hiLo: false, highWinner: "second", maxPlayers: 10 },
+  "fyst-o": { id: "fyst-o", name: "Double FYST (Omaha, second-best hand wins)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, highWinner: "second", maxPlayers: 10 },
+  dumb: { id: "dumb", name: "Dumb & Dumber (Omaha, lowest best hand wins)", holeCards: 4, mustUseTwoHole: true, betting: "pot-limit", hiLo: false, highWinner: "worst", maxPlayers: 10 },
   smd4: { id: "smd4", name: "SMD 4-Card (Omaha Hi/Lo, no qualifier)", holeCards: 4, mustUseTwoHole: false, holeUse: "2or3", betting: "pot-limit", hiLo: true, lowRule: "any", maxPlayers: 10 },
   smd5: { id: "smd5", name: "SMD 5-Card (Omaha Hi/Lo, no qualifier)", holeCards: 5, mustUseTwoHole: false, holeUse: "2or3", betting: "pot-limit", hiLo: true, lowRule: "any", maxPlayers: 8 },
   tko4: { id: "tko4", name: "TKO 4-Card (points, high and low)", holeCards: 4, mustUseTwoHole: false, betting: "pot-limit", hiLo: true, scoring: "points", maxPlayers: 10 },

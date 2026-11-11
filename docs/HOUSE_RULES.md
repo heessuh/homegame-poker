@@ -50,8 +50,17 @@ All are 4-card Omaha. In cash games they use the house limit above (which replac
 
 - **Omaha Low (8 or better):** the best low wins the whole pot. A low must be five different cards 8 or lower (ace low). If nobody has one, the best high hand wins.
 - **Omaha Low (no qualifier):** the lowest hand always wins the whole pot, ranked as in Hold’em Hi/Lo above.
-- **FYST:** like Omaha Low (no qualifier), but the **second-best** low wins the pot.
-  - If two or more players tie for the best low, they all miss out and the next-best low wins.
+
+## FYST, Double FYST and Dumb & Dumber
+
+In cash games these use the house limit above; in tournaments FYST is no-limit and the two Omaha games are pot-limit. Hands are ranked as regular high poker hands.
+
+- **FYST:** Texas Hold’em (2 hole cards, any five of your seven). The **second-best** hand wins the pot.
+- **Double FYST:** 4-card Omaha (exactly two hole cards and three from the board). The **second-best** hand wins the pot.
+- **Dumb & Dumber:** 4-card Omaha (exactly two hole cards and three from the board). Everyone must play their **best** poker hand, and the **lowest** of those best hands wins the pot. You can’t choose to play a worse hand than your best one. Ties for lowest split.
+
+In FYST and Double FYST:
+  - If two or more players tie for the best hand, they all miss out and the next-best hand wins.
   - If everyone at showdown ties, they split the pot.
   - If only one player is left in a pot, they win it.
 

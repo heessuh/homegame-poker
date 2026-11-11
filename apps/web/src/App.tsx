@@ -276,7 +276,7 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
           {view.you.isHost ? (
             <select className="gamepick" value={cfg.variant} aria-label="Game"
               onChange={(e) => send("host:config", { variant: e.target.value as VariantId })}>
-              {Object.values(VARIANTS).map((v) => <option key={v.id} value={v.id}>{gameLabel(v, cfg)}</option>)}
+              {Object.values(VARIANTS).filter((v) => !v.retired || v.id === cfg.variant).map((v) => <option key={v.id} value={v.id}>{gameLabel(v, cfg)}</option>)}
             </select>
           ) : <span className="gamename">{VARIANTS[cfg.variant] ? gameLabel(VARIANTS[cfg.variant], cfg) : cfg.variant}</span>}
           {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant]?.name ?? pendingVariant}</span>}

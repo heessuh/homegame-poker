@@ -93,7 +93,9 @@ There must be 15 lines starting with `PASS` and none starting with `FAIL`. Recor
 | 5-Card PLO Hi/Lo 8 or better | `plo5-8` | Same |
 | Omaha Low 8 or better | `plo4-lo8` | Same; low or fallback-high winners |
 | Omaha Low (no qualifier) | `plo4-lo` | Same; winners hold low hands |
-| FYST | `fyst` | Same; with 3+ players at showdown the best low does **not** win (unless all tie) |
+| FYST | `fyst-he` | Same; Hold’em, with 3+ players at showdown the best hand does **not** win (unless all tie) |
+| Double FYST | `fyst-o` | Same; Omaha, the second-best hand wins |
+| Dumb & Dumber | `dumb` | Same; Omaha, the lowest best hand wins |
 | SMD 4-Card (Omaha Hi/Lo, no qualifier) | `smd4` | Same; every pot splits High/Low, and each half is won by the best hand using two or three hole cards (a king-high low can take the low half) |
 | SMD 5-Card (Omaha Hi/Lo, no qualifier) | `smd5` | Same, with five hole cards and the same two-or-three rule |
 | TKO 4-Card (points, high and low) | `tko4` | Same; no poker hands: a hole card whose rank is on the board is out, the most points win half and the fewest win the other half, and a player with no cards left takes the whole pot |

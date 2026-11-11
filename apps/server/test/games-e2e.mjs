@@ -268,6 +268,37 @@ function conserve(g, T, withheld, label) {
 }
 
 // ------------------------------------------------------------------ per-variant showdown hooks
+/** FYST / Double FYST (second-best high hand wins) and Dumb & Dumber (lowest best hand wins). */
+function highRuleHook(g, variant, hv, rec, stats) {
+  const shown = rec.shown;
+  if (Object.keys(shown).length < 2) return;
+  stats.showdowns++;
+  const v = VARIANTS[variant];
+  hv.pots.forEach((pot, pi) => {
+    const el = pot.eligiblePlayerIds.filter((id) => shown[id]);
+    if (el.length === 0) return;
+    for (const id of el) g.ok(shown[id].length === v.holeCards, `${variant} hand ${rec.handNumber}: ${shown[id].length} hole cards shown, want ${v.holeCards}`);
+    const highs = new Map(el.map((id) => [id, bestHigh(shown[id], rec.board, v.mustUseTwoHole)]));
+    const sc = (id) => highs.get(id).score;
+    const top = Math.max(...el.map(sc)), bottom = Math.min(...el.map(sc));
+    let exp;
+    if (v.highWinner === "worst") exp = el.filter((id) => sc(id) === bottom);
+    else {
+      const rest = el.filter((id) => sc(id) !== top);
+      if (rest.length === 0) exp = el;
+      else { const nx = Math.max(...rest.map(sc)); exp = rest.filter((id) => sc(id) === nx); }
+      if (el.length >= 3 && rest.length > 0) stats.fyst3++;
+      if (rest.length > 0) g.ok(!hv.winners.some((w) => w.potIndex === pi && sc(w.playerId) === top), `${variant} hand ${rec.handNumber}: the BEST hand won (should be second best)`);
+    }
+    const winners = hv.winners.filter((w) => w.potIndex === pi);
+    const winIds = new Set(winners.map((w) => w.playerId));
+    for (const w of winners) {
+      g.ok(w.half === "whole", `${variant} hand ${rec.handNumber}: pot should pay "whole", got ${w.half}`);
+      g.ok(w.handName === highs.get(w.playerId)?.name, `${variant} hand ${rec.handNumber}: handName "${w.handName}" != computed best hand "${highs.get(w.playerId)?.name}"`);
+    }
+    g.ok(exp.length === winIds.size && exp.every((id) => winIds.has(id)), `${variant} hand ${rec.handNumber}: expected winners ${exp.map((id) => rec.names[id])}, got ${[...winIds].map((id) => rec.names[id])}`);
+  });
+}
 const LOW_NAME_RE = /^([A2-9TJQK]-){4}[A2-9TJQK]$/;
 function lowHook(g, variant, hv, rec, stats) {
   const shown = rec.shown;
@@ -397,7 +428,8 @@ async function playGame(g, ctx, variant, n, hands, policy = POLICY) {
   const v0 = VARIANTS[variant];
   const stud = v0.kind === "stud";
   const stats = { showdowns: 0, fystSecond: 0, fyst3: 0, hilo: 0, reshuffles: 0, foldEnds: 0, rebuys: 0, smdChecked: 0, tkoEmpty: 0, tkoWhole: 0, tkoSplit: 0 };
-  const wantMore = () => (variant === "fyst" ? stats.fyst3 < 2 : variant === "nlhe-hilo" ? stats.hilo < 2 : variant === "plo4-lo" ? stats.showdowns < 2 : false);
+  const hiRule = !!v0.highWinner && v0.highWinner !== "best";
+  const wantMore = () => (variant.startsWith("fyst") ? stats.fyst3 < 2 : variant === "dumb" ? stats.showdowns < 2 : variant === "nlhe-hilo" ? stats.hilo < 2 : variant === "plo4-lo" ? stats.showdowns < 2 : false);
   H.s.emit("host:start");
   let i = 0;
   while (i < hands || (wantMore() && i < hands + 8)) {
@@ -435,6 +467,7 @@ async function playGame(g, ctx, variant, n, hands, policy = POLICY) {
     fairOk(g, rec, `hand ${i}`);
     if (rec.summary.some((l) => /Discards reshuffled/.test(l))) stats.reshuffles++;
     if (variant === "plo4-lo" || variant === "fyst") lowHook(g, variant, hv, rec, stats);
+    if (hiRule) highRuleHook(g, variant, hv, rec, stats);
     if (variant === "nlhe-hilo") hiloHook(g, hv, rec, stats);
     if (variant.startsWith("smd")) smdHook(g, variant, hv, rec, stats);
     if (variant.startsWith("tko")) tkoHook(g, variant, hv, rec, stats);
@@ -465,7 +498,8 @@ async function playGame(g, ctx, variant, n, hands, policy = POLICY) {
     g.note(`${stats.reshuffles} of ${played} hands reshuffled the discards`);
     if (n >= 8 && stats.reshuffles === 0) g.note("WARNING: no discard reshuffle was exercised in this run");
   }
-  if (variant === "fyst") g.note(`${stats.showdowns} showdowns, ${stats.fyst3} with a 3+ player second-best-low check`);
+  if (variant.startsWith("fyst")) g.note(`${stats.showdowns} showdowns, ${stats.fyst3} with a 3+ player second-best check`);
+  if (variant === "dumb") g.note(`${stats.showdowns} lowest-best-hand showdowns verified`);
   if (variant === "nlhe-hilo") g.note(`${stats.hilo} hi/lo split pots verified`);
   if (variant === "plo4-lo") g.note(`${stats.showdowns} low showdowns verified`);
   if (variant.startsWith("smd")) g.note(`${stats.showdowns} showdowns verified (2or3 high and low)`);
@@ -871,12 +905,12 @@ async function main() {
   const jobs = [];
   const games = [
     ["nlhe", 6], ["nlhe-hilo", 3], ["plo4", 4], ["plo5", 5], ["plo4-8", 2],
-    ["plo5-8", 6], ["plo4-lo8", 3], ["plo4-lo", 4], ["fyst", 5], ["murder5", 8],
+    ["plo5-8", 6], ["plo4-lo8", 3], ["plo4-lo", 4], ["fyst-he", 5], ["fyst-o", 5], ["dumb", 4], ["murder5", 8],
     ["smd4", 4], ["smd5", 5], ["tko4", 6], ["tko5", 4],
   ];
   const showdownish = { fold: 0.04, raise: 0.2, swap: 0.65 };
   for (const [variant, n] of games) {
-    const policy = variant === "fyst" || variant === "plo4-lo" || variant === "nlhe-hilo" || variant.startsWith("smd") || variant.startsWith("tko") ? showdownish : variant === "murder5" ? { fold: 0.03, raise: 0.2, swap: 1 } : POLICY;
+    const policy = variant.startsWith("fyst") || variant === "dumb" || variant === "plo4-lo" || variant === "nlhe-hilo" || variant.startsWith("smd") || variant.startsWith("tko") ? showdownish : variant === "murder5" ? { fold: 0.03, raise: 0.2, swap: 1 } : POLICY;
     jobs.push([`game ${variant} (${n} players, ${HANDS} hands)`, (g) => playGame(g, ctx, variant, n, HANDS, policy)]);
   }
   jobs.push(["rules: house limit, Hold'em 3-handed", (g) => scenHouseBoard(g, ctx, "nlhe", 3, "nlhe 3p")]);

@@ -4,7 +4,7 @@
 
 A private, browser-based poker room for a group of friends. No downloads, no accounts: the host opens a table and shares the link.
 
-**Games:** No-Limit Hold’em and Hold’em Hi/Lo; Pot-Limit Omaha High and Hi/Lo 8-or-better (4- and 5-card); Omaha Low (8-or-better and no qualifier); FYST; SMD and TKO (4- and 5-card); and 5-Murder. Betting rules are in the [House Rules](docs/HOUSE_RULES.md).
+**Games:** No-Limit Hold’em and Hold’em Hi/Lo; Pot-Limit Omaha High and Hi/Lo 8-or-better (4- and 5-card); Omaha Low (8-or-better and no qualifier); FYST, Double FYST and Dumb & Dumber; SMD and TKO (4- and 5-card); and 5-Murder. Betting rules are in the [House Rules](docs/HOUSE_RULES.md).
 
 **Fair dealing:** every hand is a uniform Fisher–Yates shuffle. The server commits to a secret seed before the deal, each player’s browser adds its own seed, and the deck is revealed after the hand so anyone can recompute it. Every browser checks this automatically, and an [outside verifier](https://heessuh.github.io/mochapoker-verify/) does it independently. See [`docs/FAIRNESS.md`](docs/FAIRNESS.md) and [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
 
