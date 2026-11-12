@@ -273,11 +273,19 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
           <Wordmark /> <code>{view.tableId}</code>
           <span className={`pill ${view.status}`}>{view.status}</span>
           {!connected && <span className="pill warn">reconnecting…</span>}
+        </div>
+        {/* Its own row on phones, so a long game label can wrap and show in full. */}
+        <div className="gamerow">
           {view.you.isHost ? (
-            <select className="gamepick" value={cfg.variant} aria-label="Game"
-              onChange={(e) => send("host:config", { variant: e.target.value as VariantId })}>
-              {Object.values(VARIANTS).filter((v) => !v.retired || v.id === cfg.variant).map((v) => <option key={v.id} value={v.id}>{gameLabel(v, cfg)}</option>)}
-            </select>
+            // The select is invisible and sits on top of the text: a native select can't wrap its label, plain text can.
+            <label className="gamepick">
+              <span className="gamepick-text">{VARIANTS[cfg.variant] ? gameLabel(VARIANTS[cfg.variant], cfg) : cfg.variant}</span>
+              <span className="gamepick-caret" aria-hidden="true">▾</span>
+              <select value={cfg.variant} aria-label="Game"
+                onChange={(e) => send("host:config", { variant: e.target.value as VariantId })}>
+                {Object.values(VARIANTS).filter((v) => !v.retired || v.id === cfg.variant).map((v) => <option key={v.id} value={v.id}>{gameLabel(v, cfg)}</option>)}
+              </select>
+            </label>
           ) : <span className="gamename">{VARIANTS[cfg.variant] ? gameLabel(VARIANTS[cfg.variant], cfg) : cfg.variant}</span>}
           {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant] ? gameLabel(VARIANTS[pendingVariant], cfg) : pendingVariant}</span>}
         </div>
