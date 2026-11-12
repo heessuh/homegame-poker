@@ -23,7 +23,7 @@ You are checking the monthly spending guardrail for Mocha Poker, Fred’s privat
 4. After sending, record it so it isn’t sent again this month:
    `curl -s -X POST -H "Authorization: Bearer <KEY>" "https://mochapoker.fly.dev/admin/usage/notified?level=<warn|limit>"`
 
-Send emails with the Gmail connector’s send_message tool, to heessuh@gmail.com only, as plain text (no Markdown). Use American English and curly quotes and apostrophes. Show dollar amounts with two decimals.
+Send emails with the Gmail connector’s send_message tool, to the owner’s own address only, as plain text (no Markdown). Use American English and curly quotes and apostrophes. Show dollar amounts with two decimals.
 
 WARNING email
 Subject: Mocha Poker: 80% of this month’s $<limitUsd> budget used

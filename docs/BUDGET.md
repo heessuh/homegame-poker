@@ -42,7 +42,7 @@ Setting a secret restarts the server, which lifts the pause if the new limit is 
 Both one-time steps were completed on November 4, 2026.
 
 1. **Meter key:** stored as the Fly.io secret `USAGE_TOKEN`. The owner’s copy is in `~/.mochapoker/usage-token`. The owner report at `/admin/usage` needs this key.
-2. **Daily email check:** the scheduled task “Mocha Poker budget check” in the Claude desktop app runs every morning at about 9:00. It reads the meter and emails heessuh@gmail.com, once at the 80% warning and once at the $5 limit, never more than once per level per month. Scheduled tasks run while the Claude app is open; if it’s closed at that time, the check runs the next time the app opens. Its instructions are in [budget-check-task.md](budget-check-task.md).
+2. **Daily email check:** the scheduled task “Mocha Poker budget check” in the Claude desktop app runs every morning at about 9:00. It reads the meter and emails the owner, once at the 80% warning and once at the $5 limit, never more than once per level per month. Scheduled tasks run while the Claude app is open; if it’s closed at that time, the check runs the next time the app opens. Its instructions are in [budget-check-task.md](budget-check-task.md).
 
 To set the key again (for example, after replacing it), in Git Bash:
 
