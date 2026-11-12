@@ -3,8 +3,8 @@ import { VARIANTS, holeRule, splitOf, type VariantId } from "../src/variants.js"
 
 describe("new variants: SMD and TKO", () => {
   it("defines the four new variants with names, hole counts and table sizes", () => {
-    expect(VARIANTS.smd4).toMatchObject({ id: "smd4", name: "SMD 4-Card (Omaha Hi/Lo, no qualifier)", holeCards: 4, maxPlayers: 10 });
-    expect(VARIANTS.smd5).toMatchObject({ id: "smd5", name: "SMD 5-Card (Omaha Hi/Lo, no qualifier)", holeCards: 5, maxPlayers: 8 });
+    expect(VARIANTS.smd4).toMatchObject({ id: "smd4", name: "SMD 4-Card (Omaha Hi/Lo, no qualifier, use 2 or 3 cards)", holeCards: 4, maxPlayers: 10 });
+    expect(VARIANTS.smd5).toMatchObject({ id: "smd5", name: "SMD 5-Card (Omaha Hi/Lo, no qualifier, use 2 or 3 cards)", holeCards: 5, maxPlayers: 8 });
     expect(VARIANTS.tko4).toMatchObject({ id: "tko4", name: "TKO 4-Card (points, high and low)", holeCards: 4, maxPlayers: 10 });
     expect(VARIANTS.tko5).toMatchObject({ id: "tko5", name: "TKO 5-Card (points, high and low)", holeCards: 5, maxPlayers: 8 });
   });

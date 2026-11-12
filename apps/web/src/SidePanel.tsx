@@ -3,7 +3,7 @@ import { DEFAULT_HOUSE_LIMIT, DEFAULT_STUD, VARIANTS, VERIFIER_URL } from "@home
 import type { HouseLimit, SeatView, StudStakes, TableConfig, TableView, VariantId } from "@homegame/engine";
 import { CardRow } from "./CardView";
 import type { Send } from "./App";
-import { fmt, fmtWith, isStud, sha256Hex, shortGame } from "./util";
+import { fmt, fmtWith, gameLabel, isStud, sha256Hex, shortGame } from "./util";
 import type { Card, HandRecord } from "@homegame/engine";
 import { MoneyInput, Who, avatarOf } from "./ui";
 import { fairnessExport, verifyFairness, type FairCheck } from "./fairness";
@@ -345,7 +345,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
       <div className="form">
         <label>Variant
           <select value={draft.variant} onChange={(e) => setDraft({ ...draft, variant: e.target.value as VariantId })}>
-            {Object.values(VARIANTS).filter((v) => !v.retired || v.id === draft.variant).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            {Object.values(VARIANTS).filter((v) => !v.retired || v.id === draft.variant).map((v) => <option key={v.id} value={v.id}>{gameLabel(v, { mode: draft.mode ?? view.config.mode, money: draft.money ?? view.config.money, houseLimit: hl })}</option>)}
           </select>
         </label>
         <label className="full">Money display
