@@ -121,10 +121,14 @@ export function isStud(config: Pick<TableConfig, "variant">): boolean {
   return v?.kind === "stud" || (config.variant as string) === "murder5";
 }
 
-/** Game name for the header. With the house limit on, "No-Limit" would be wrong, so it shows the limit instead. */
-export function gameLabel(v: { name: string; kind?: string }, config: Pick<TableConfig, "mode" | "money" | "houseLimit">): string {
-  if (v.kind === "stud" || config.mode !== "cash" || !config.houseLimit?.enabled) return v.name;
-  return `${v.name.replace(/^(No-Limit|Pot-Limit) /, "")} · ${fmtWith(config.houseLimit.maxBet, config.money === "cents").replace(/\.00$/, "")} limit`;
+/**
+ * Game name as shown to players. In a cash game with the house limit on, "No-Limit" or "Pot-Limit" would be wrong,
+ * so the label shows the limit instead. In tournaments (and cash with the house limit off) Hold'em reads "No-Limit".
+ */
+export function gameLabel(v: { name: string; openName?: string; kind?: string }, config: Pick<TableConfig, "mode" | "money" | "houseLimit">): string {
+  if (v.kind === "stud") return v.name;
+  if (config.mode !== "cash" || !config.houseLimit?.enabled) return v.openName ?? v.name;
+  return `${v.name.replace(/(No-Limit|Pot-Limit) /, "")} · ${fmtWith(config.houseLimit.maxBet, config.money === "cents").replace(/\.00$/, "")} limit`;
 }
 
 export const STUD_STREETS: Partial<Record<Phase, string>> = {

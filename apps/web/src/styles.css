@@ -371,7 +371,7 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .avbtn { align-self: center; }
 
 /* top bar game */
-.gamepick { max-width: 190px; font-size: 13px; padding: 5px 8px; }
+.gamepick { max-width: min(100%, 440px); min-width: 0; text-overflow: ellipsis; font-size: 13px; padding: 5px 8px; }
 .gamename { font-size: 12px; color: var(--muted); }
 
 /* seat extras */

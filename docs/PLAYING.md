@@ -69,10 +69,10 @@ By default the server awards every pot based on the cards. Some tables let the d
 
 ## Games
 
-- **No-Limit Texas Hold’em**, up to 10 players.
+- **Texas Hold’em**, up to 10 players. It is no-limit in tournaments; cash games use the house limit.
 - **Pot-Limit Omaha** with 4 hole cards, up to 10 players.
 - **5-Card Pot-Limit Omaha**, up to 8 players.
-- **No-Limit Hold’em Hi/Lo (no qualifier)**, up to 10 players: every pot splits between the best high hand and the lowest hand, using any five of your seven cards for each. There’s no 8-or-lower rule — even a king-high low can win. Aces are low, straights and flushes don’t hurt a low, and pairs do (any five different cards beat any pair).
+- **Hold’em Hi/Lo (no qualifier)**, up to 10 players: every pot splits between the best high hand and the lowest hand, using any five of your seven cards for each. There’s no 8-or-lower rule — even a king-high low can win. Aces are low, straights and flushes don’t hurt a low, and pairs do (any five different cards beat any pair).
 - **Pot-Limit Omaha Hi/Lo (8 or better)** with 4 hole cards, up to 10 players.
 - **5-Card Pot-Limit Omaha Hi/Lo (8 or better)**, up to 8 players.
 - **Pot-Limit Omaha Low**, 8 or better or with no qualifier, up to 10 players.

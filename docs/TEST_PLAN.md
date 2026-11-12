@@ -85,7 +85,7 @@ There must be 15 lines starting with `PASS` and none starting with `FAIL`. Recor
 
 | Game | Variant ID | Must pass |
 |---|---|---|
-| No-Limit Hold’em | `nlhe` | All hands finish, chips add up, cards stay hidden, house limit enforced |
+| Texas Hold’em | `nlhe` | All hands finish, chips add up, cards stay hidden, house limit enforced |
 | Hold’em Hi/Lo (no qualifier) | `nlhe-hilo` | The above, plus every pot with 2+ players at showdown is split High/Low |
 | Pot-Limit Omaha High | `plo4` | All hands finish, chips add up, cards stay hidden |
 | 5-Card PLO High | `plo5` | Same |
@@ -96,7 +96,7 @@ There must be 15 lines starting with `PASS` and none starting with `FAIL`. Recor
 | FYST | `fyst-he` | Same; Hold’em, with 3+ players at showdown the best hand does **not** win (unless all tie) |
 | Double FYST | `fyst-o` | Same; Omaha, the second-best hand wins |
 | Dumb & Dumber | `dumb` | Same; Omaha, the lowest best hand wins |
-| SMD 4-Card (Omaha Hi/Lo, no qualifier) | `smd4` | Same; every pot splits High/Low, and each half is won by the best hand using two or three hole cards (a king-high low can take the low half) |
+| SMD 4-Card (Omaha Hi/Lo, no qualifier, use 2 or 3 cards) | `smd4` | Same; every pot splits High/Low, and each half is won by the best hand using two or three hole cards (a king-high low can take the low half) |
 | SMD 5-Card (Omaha Hi/Lo, no qualifier) | `smd5` | Same, with five hole cards and the same two-or-three rule |
 | TKO 4-Card (points, high and low) | `tko4` | Same; no poker hands: a hole card whose rank is on the board is out, the most points win half and the fewest win the other half, and a player with no cards left takes the whole pot |
 | TKO 5-Card (points, high and low) | `tko5` | Same, with five hole cards and the same points rules |
