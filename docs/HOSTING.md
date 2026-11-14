@@ -83,6 +83,12 @@ Tournament chips never count in the cash ledger. Switching a table to tournament
 
 In the **Host** tab, **Lock table** stops new people from joining. Players who already sat at the table can still reconnect. Click **Unlock table** to let new people in. Table links made by **Create a table** now use 12 random characters, so they are hard to guess; share the link only with your group.
 
+## Passing host to someone else
+
+In the **Host** tab, under **Players**, click **Make host** next to a player and confirm. That player gets the host controls right away, even in the middle of a hand, and you lose them. The player must be seated and online. The log says “<name> is now the host,” and the dealer log records who passed host to whom. The new host can pass it back the same way.
+
+Host status starts with the first person to open a new table’s link.
+
 ## If the host goes offline
 
 If you lose your connection (for example, your phone sleeps), the table keeps going for 60 seconds. If you haven’t reconnected by then, host status passes to the connected **seated** player in the lowest seat. Someone who is only watching never becomes host. If nobody seated is online, the table keeps the absent host until they return. The log says “<name> is now the host.”
