@@ -481,6 +481,13 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       table.hostKick(playerId, p.playerId);
     }));
 
+    on("host:handOff", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      if (typeof p.playerId !== "string") throw new UserError("Invalid request.");
+      table.hostHandOff(playerId, p.playerId);
+    }));
+
     on("host:adjustStack", handle((raw) => {
       const p = obj(raw);
       const { table, playerId } = ctx();

@@ -479,6 +479,11 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
                 {TIMER_OPTIONS.map((t) => <option key={t} value={t}>{t} s</option>)}
               </select>
             </label>
+            {s.playerId !== view.you.playerId && (
+              <button className="btn tiny" disabled={!s.connected}
+                title={s.connected ? "Pass the host controls to this player" : "This player is offline"}
+                onClick={() => { if (confirm(`Make ${s.name} the host? You will lose the host controls.`)) send("host:handOff", { playerId: s.playerId }); }}>Make host</button>
+            )}
             {actingId === s.playerId && (
               <>
                 {view.hand?.actionDeadline != null && <button className="btn tiny" onClick={() => send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}

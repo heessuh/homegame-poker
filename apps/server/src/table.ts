@@ -761,6 +761,23 @@ export class Table {
     });
   }
 
+  /** The host passes host status to a seated, connected player. Works at any time, also mid-hand: host status never touches the cards. */
+  hostHandOff(playerId: string, targetId: string): void {
+    this.asHost(playerId, "handoff", (host, rec) => {
+      const t = this.players.get(targetId);
+      if (!t || t.banned) throw new UserError("That player is not at this table.");
+      if (t.id === host.id) throw new UserError("You are already the host.");
+      if (t.seat === null) throw new UserError("Only a seated player can become the host.");
+      if (t.connections === 0) throw new UserError(`${t.name} is offline. Pick a player who is connected.`);
+      rec(`${host.name} passed host to ${t.name}`, { reason: "passed by the host", fromId: host.id, fromName: host.name, toId: t.id, toName: t.name });
+      this.hostId = t.id;
+      this.hostOfflineSince = null;
+      this.clearHostTimer();
+      this.addLog(`${t.name} is now the host`);
+      this.changed();
+    });
+  }
+
   private clearHostTimer(): void {
     if (this.hostTimer !== null) this.sched.clearTimeout(this.hostTimer);
     this.hostTimer = null;

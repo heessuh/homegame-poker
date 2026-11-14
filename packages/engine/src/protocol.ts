@@ -380,6 +380,7 @@ export interface ClientToServerEvents {
   "host:pause": (p: { paused: boolean }) => void;
   "host:config": (p: Partial<TableConfig>) => void;
   "host:kick": (p: { playerId: string }) => void;
+  "host:handOff": (p: { playerId: string }) => void;
   "host:shuffleSeats": () => void;
   "host:sitOut": (p: { playerId: string; sittingOut: boolean }) => void; // dealer marks a player away / back
   /** Rebuys are dealer-only: a positive delta is recorded as a buy-in (and sits a busted player back in), negative as a cash-out. Between hands; queued during a hand. */

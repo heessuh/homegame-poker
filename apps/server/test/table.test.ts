@@ -369,6 +369,54 @@ describe("host handoff", () => {
   });
 });
 
+describe("host passes host status by hand", () => {
+  it("moves host to the chosen seated player right away, also mid-hand, and records it", () => {
+    const r = rig(3);
+    for (const [i, id] of r.ids.entries()) r.table.sit(id, i, 100);
+    r.table.hostStart(r.ids[0]!);
+    r.clock.advance(1000);
+    expect(r.table.viewFor(r.ids[0]!).hand).not.toBeNull();
+    r.table.hostHandOff(r.ids[0]!, r.ids[2]!);
+    const v = r.table.viewFor(r.ids[2]!);
+    expect(v.hostPlayerId).toBe(r.ids[2]);
+    expect(v.you.isHost).toBe(true);
+    expect(v.hand).not.toBeNull();
+    expect(v.log).toContain("P2 is now the host");
+    expect(r.table.viewFor(r.ids[0]!).you.isHost).toBe(false);
+    const e = r.table.getDealerLog().at(-1)!;
+    expect(e).toMatchObject({ action: "handoff", hostId: r.ids[0], details: { reason: "passed by the host", fromId: r.ids[0], toId: r.ids[2] } });
+    // The old host can no longer use host actions; the new one can, and can pass it back.
+    expect(() => r.table.hostPause(r.ids[0]!, true)).toThrow(/host/);
+    r.table.hostHandOff(r.ids[2]!, r.ids[0]!);
+    expect(r.table.viewFor(r.ids[0]!).you.isHost).toBe(true);
+  });
+
+  it("refuses yourself, a spectator, an offline player and an unknown player", () => {
+    const r = rig(4);
+    r.table.sit(r.ids[0]!, 0, 100);
+    r.table.sit(r.ids[1]!, 1, 100);
+    r.table.sit(r.ids[2]!, 2, 100);
+    r.table.disconnect(r.ids[2]!);
+    const [h, b, off, watcher] = r.ids as [string, string, string, string];
+    expect(() => r.table.hostHandOff(h, h)).toThrow(/already/);
+    expect(() => r.table.hostHandOff(h, watcher)).toThrow(/seated/);
+    expect(() => r.table.hostHandOff(h, off)).toThrow(/offline/);
+    expect(() => r.table.hostHandOff(h, "nope")).toThrow(/not at this table/);
+    expect(() => r.table.hostHandOff(b, h)).toThrow(/Only the host/);
+    expect(r.table.viewFor(h).hostPlayerId).toBe(h);
+  });
+
+  it("a new host who then drops offline is replaced after 60s like any host", () => {
+    const r = rig(2);
+    r.table.sit(r.ids[0]!, 0, 100);
+    r.table.sit(r.ids[1]!, 1, 100);
+    r.table.hostHandOff(r.ids[0]!, r.ids[1]!);
+    r.table.disconnect(r.ids[1]!);
+    r.clock.advance(60_000);
+    expect(r.table.viewFor(r.ids[0]!).hostPlayerId).toBe(r.ids[0]);
+  });
+});
+
 describe("dealer shuffles seats", () => {
   /** playerId -> seat index, for everyone seated. */
   const seatMap = (r: Rig): Map<string, number> => {
