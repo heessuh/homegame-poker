@@ -42,6 +42,7 @@ export function App() {
   const joined = !!tableId && (joinedId === tableId || storeGet("hg.joined." + tableId) === "1");
   const [avatar, setAvatar] = useState<string | null>(() => loadAvatar());
   const changeAvatar = useCallback((a: string | null) => { saveAvatar(a); setAvatar(a); }, []);
+  const changeName = useCallback((n: string) => { storeSet("hg.name", n); setName(n); }, []);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number>();
 
@@ -64,7 +65,7 @@ export function App() {
         onJoin={(n) => { storeSet("hg.name", n); storeSet("hg.joined." + tableId, "1"); setName(n); setJoinedId(tableId); }}
       />
     );
-  } else body = <LiveRoom tableId={tableId} name={name.trim()} avatar={avatar} onAvatar={changeAvatar} showToast={showToast} />;
+  } else body = <LiveRoom tableId={tableId} name={name.trim()} onName={changeName} avatar={avatar} onAvatar={changeAvatar} showToast={showToast} />;
 
   return (
     <>
@@ -114,9 +115,12 @@ function JoinForm({ tableId, initial, avatar, onAvatar, onJoin }: { tableId: str
   );
 }
 
-function LiveRoom({ tableId, name, avatar, onAvatar, showToast }: { tableId: string; name: string; avatar: string | null; onAvatar: (a: string | null) => void; showToast: (m: string) => void }) {
+function LiveRoom({ tableId, name, onName, avatar, onAvatar, showToast }: { tableId: string; name: string; onName: (n: string) => void; avatar: string | null; onAvatar: (a: string | null) => void; showToast: (m: string) => void }) {
   const avatarRef = useRef(avatar);
   avatarRef.current = avatar;
+  // A ref, so changing the name at the table doesn't reconnect the socket, and a later reconnect joins under the new name.
+  const nameRef = useRef(name);
+  nameRef.current = name;
   const [view, setView] = useState<TableView | null>(null);
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
@@ -125,13 +129,13 @@ function LiveRoom({ tableId, name, avatar, onAvatar, showToast }: { tableId: str
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io();
     socketRef.current = socket;
     const token = getPlayerToken();
-    const doJoin = () => { setConnected(true); socket.emit("join", { tableId, name, playerToken: token, avatar: avatarRef.current }); };
+    const doJoin = () => { setConnected(true); socket.emit("join", { tableId, name: nameRef.current, playerToken: token, avatar: avatarRef.current }); };
     socket.on("connect", doJoin);
     socket.on("disconnect", () => setConnected(false));
     socket.on("state", setView);
     socket.on("error", (p) => showToast(p.message));
     return () => { socket.disconnect(); socketRef.current = null; };
-  }, [tableId, name, showToast]);
+  }, [tableId, showToast]);
 
   const send = useMemo<Send>(() => (ev, ...args) => {
     (socketRef.current?.emit as unknown as (e: string, ...a: unknown[]) => void)?.(ev, ...args);
@@ -151,7 +155,7 @@ function LiveRoom({ tableId, name, avatar, onAvatar, showToast }: { tableId: str
   }, [fair?.nextHandNumber, fair?.serverSeedHash, send, tableId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!view) return <main className="landing"><p className="muted">{connected ? "Joining table…" : "Connecting…"}</p></main>;
-  return <><FairWatch view={view} /><Room view={view} send={send} connected={connected} avatar={avatar} onAvatar={onAvatar} /></>;
+  return <><FairWatch view={view} /><Room view={view} send={send} connected={connected} avatar={avatar} onAvatar={onAvatar} onName={onName} /></>;
 }
 
 function MockRoom({ showToast, avatar, onAvatar }: { showToast: (m: string) => void; avatar: string | null; onAvatar: (a: string | null) => void }) {
@@ -228,13 +232,32 @@ function AmountPrompt(props: { title: string; min: number; max: number; cta: str
   );
 }
 
-function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; send: Send; connected: boolean; avatar: string | null; onAvatar: (a: string | null) => void }) {
+function NamePrompt({ current, onConfirm, onClose }: { current: string; onConfirm: (n: string) => void; onClose: () => void }) {
+  const [n, setN] = useState(current);
+  const clean = n.trim().replace(/\s+/g, " ");
+  return (
+    <Modal title="Change your name" onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); if (clean) { if (clean !== current) onConfirm(clean); onClose(); } }}>
+        <label className="sr" htmlFor="new-name">Your name</label>
+        <input id="new-name" style={{ width: "100%", margin: "10px 0" }} placeholder="Your name" value={n} maxLength={20} autoFocus onFocus={(e) => e.target.select()} onChange={(e) => setN(e.target.value)} />
+        <p className="muted small">Everyone at the table sees the change in the log.</p>
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn call" disabled={!clean}>Save</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function Room({ view, send, connected, avatar, onAvatar, onName }: { view: TableView; send: Send; connected: boolean; avatar: string | null; onAvatar: (a: string | null) => void; onName?: (n: string) => void }) {
   setMoneyMode(view.config);
   const dealerWatch = useDealerWatch(view, send);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("log");
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [pickAvatar, setPickAvatar] = useState(false);
+  const [pickName, setPickName] = useState(false);
   // The header wraps to two rows on phones, so the menu panel starts below its real height, not a fixed 54px.
   const roomRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLElement>(null);
@@ -329,6 +352,7 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
               <button className="btn small" onClick={() => send("stand")}>Stand up</button>
               <button className="btn small" onClick={() => send("sitOut", { sittingOut: !me.sittingOut })}>{me.sittingOut ? "Sit in" : "Sit out"}</button>
               <button className="btn small" onClick={() => setPickAvatar(true)}>Avatar</button>
+              <button className="btn small" onClick={() => setPickName(true)}>Name</button>
             </div>
           )}
         </section>
@@ -346,6 +370,7 @@ function Room({ view, send, connected, avatar, onAvatar }: { view: TableView; se
         <AmountPrompt title={`Sit at seat ${sitSeat + 1}`} min={cfg.minBuyIn} max={cfg.maxBuyIn} cta="Sit down"
           onConfirm={(n) => send("sit", { seat: sitSeat, buyIn: n })} onClose={() => setSitSeat(null)} />
       )}
+      {pickName && me && <NamePrompt current={me.name} onConfirm={(n) => { onName?.(n); send("setName", { name: n }); }} onClose={() => setPickName(false)} />}
       {pickAvatar && <AvatarPicker current={me?.avatar ?? avatar} onPick={changeAvatar} onClose={() => setPickAvatar(false)} />}
     </div>
   );

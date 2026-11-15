@@ -16,6 +16,10 @@ After each hand the shuffle is published so everyone can check it. That includes
 2. Type the name you want to show at the table (1 to 20 characters). Names must be unique, so if someone already uses yours, you’ll be shown as “Name2” or similar.
 3. You’ll see the table right away. Refresh or close the tab and reopen the link any time, in the same browser: your seat and chips are kept, even if the server restarts.
 
+## Change your name
+
+The site asks for your name once on each new table, filled in with the last name you used. To change it later, sit down and click **Name** under the table. Everyone sees the change in the log.
+
 ## Pick an avatar
 
 Next to your name you can show an avatar: an emoji (animals, card suits, or objects) or a number from 1 to 99.
