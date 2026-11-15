@@ -316,6 +316,8 @@ function Room({ view, send, connected, avatar, onAvatar, onName }: { view: Table
           {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant] ? gameLabel(VARIANTS[pendingVariant], cfg) : pendingVariant}</span>}
         </div>
         <div className="top-actions">
+          {view.you.isHost && view.status === "playing" && <button className="btn small" title="Freeze the game and every clock until you resume" onClick={() => send("host:pause", { paused: true })}>Pause</button>}
+          {view.you.isHost && view.status === "paused" && <button className="btn small call" onClick={() => send("host:pause", { paused: false })}>Resume</button>}
           <button className="btn small" onClick={copy}>Copy link</button>
           <button className="btn small" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Close" : "Menu"}</button>
         </div>
@@ -337,7 +339,7 @@ function Room({ view, send, connected, avatar, onAvatar, onName }: { view: Table
           {view.you.isHost && view.pendingAward && <AwardPanel view={view} pa={view.pendingAward} send={send} />}
           <ActionBar view={view} onAction={(a) => send("action", a)} onExtend={() => send("extendTime")} />
           {me && !isTourney && me.stack === 0 && !me.inHand && (
-            <p className="note busted" role="status">Out of chips — ask the dealer for a rebuy.</p>
+            <p className="note busted" role="status">Out of chips. Ask the dealer to add money.</p>
           )}
           {me && view.you.blindDue && !me.sittingOut && !isTourney && !isStud(cfg) && (
             <div className="blindchoice" role="status">

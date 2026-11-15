@@ -13,7 +13,7 @@ A guide for the person running the game night.
 ## Start and pause
 
 - **Start game** begins play. The first hand deals once at least two seated players have chips.
-- **Pause** lets the current hand finish, then holds the table. **Resume** starts it again.
+- **Pause** freezes the game at once, even in the middle of a hand. Nobody can act, and the clock of the player to act stops. **Resume** continues from exactly where it stopped, with the same time left. Both buttons are at the top of the screen and in the **Host** tab. While paused you can still add time, change money, and confirm an award.
 
 ## Change the game
 
@@ -27,7 +27,7 @@ In the **Host** tab, under **Settings**, you can change:
 - **Small blind** and **Big blind**.
 - **Max seats**: 2 to 10 for four-card games, 2 to 8 for five-card games.
 - **Action timer**: seconds per action, or 0 to turn it off. Allowed values are 0 or 5 to 300.
-- **Player extension**: how many seconds a player gets when they tap **+15s** on their timer. Default 15; 0 turns it off.
+- **Player extension**: how many seconds a player gets when they tap **More time +15s** next to the action buttons. Default 15; 0 turns it off.
 - **Min buy-in** and **Max buy-in**.
 - **Pot awarding**: **Automatic** (the default) or **Dealer decides** (see below).
 
@@ -41,13 +41,15 @@ Under **Players** you can see everyone seated with their stack.
 
 - Enter an amount in **Stack adjust amount**, then use **+** or **−** next to a player to add or remove chips. Adjustments made during a hand are applied after it ends.
 - **Sit out / Sit in** marks a player as away if they forgot to do it themselves, so they aren’t dealt in (in a tournament they’re still dealt and fold automatically). Click **Sit in** to deal them back in.
-- **Rebuy** records a buy-in in the ledger and adds chips to a player’s stack. It also deals a busted player back in.
-- **Cash out** pays a player’s stack out and records it in the ledger.
+- **Add money** adds the amount you typed to a player’s stack and records it as a buy-in in the ledger. It also deals a busted player back in.
+- **Remove** takes the amount you typed off a player’s stack and records it as a cash-out.
+- **Set** makes the player’s stack exactly the amount you typed. The difference is recorded as a buy-in or a cash-out.
+- During a hand, these changes wait until the hand ends. A **Set** replaces any earlier change that is still waiting for that player.
 - **Kick** removes a player from their seat and stops them from sitting down again. If they’re in a hand, they leave after it ends. You cannot kick yourself.
 - **Move chips** moves any amount from one player’s stack to another’s at any time. Between hands it happens right away; during a hand, it happens at the end of the current hand.
 - **Timer** sets each player’s action timer: **Table default**, **No limit**, or 15 to 180 seconds. While someone is acting, you can click **+30s** to give them more time, or **Time out now** to act for them: check if possible, otherwise fold.
 
-Every buy-in, rebuy, host adjustment, and cash-out is recorded in the **Ledger** tab, so you can settle up at the end of the night. Everything you do as host also goes in the dealer log, which every player can see and which their browsers check for tampering.
+Every buy-in, added or removed amount, set stack, and cash-out is recorded in the **Ledger** tab, so you can settle up at the end of the night. Everything you do as host also goes in the dealer log, which every player can see and which their browsers check for tampering.
 
 ## Shuffle seats
 
@@ -77,7 +79,7 @@ While a tournament runs:
 
 Betting in tournaments is standard: Omaha is pot-limit and Hold’em is no-limit. The house limit (up to $2 per bet or raise) only applies to cash games, where it replaces the Omaha pot limit.
 
-Tournament chips never count in the cash ledger. Switching a table to tournament mode cashes everyone out in the ledger first. Switching back to cash leaves players with 0 chips and sitting out until you rebuy them. Each rebuy is recorded as a buy-in.
+Tournament chips never count in the cash ledger. Switching a table to tournament mode cashes everyone out in the ledger first. Switching back to cash leaves players with 0 chips and sitting out until you add money for them. Each amount you add is recorded as a buy-in.
 
 ## Locking the table
 

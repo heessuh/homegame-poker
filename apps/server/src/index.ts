@@ -501,6 +501,13 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       table.hostAdjustStack(playerId, p.playerId, int(p.delta, "Adjustment"));
     }));
 
+    on("host:setStack", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      if (typeof p.playerId !== "string") throw new UserError("Invalid request.");
+      table.hostSetStack(playerId, p.playerId, int(p.amount, "Amount"));
+    }));
+
     on("host:shuffleSeats", handle(() => {
       const { table, playerId } = ctx();
       table.hostShuffleSeats(playerId);
