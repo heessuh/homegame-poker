@@ -325,6 +325,12 @@ export async function startServer(port: number, opts: ServerOptions = {}): Promi
       table.setAvatar(playerId, p.avatar);
     }));
 
+    on("setName", handle((raw) => {
+      const p = obj(raw);
+      const { table, playerId } = ctx();
+      table.setName(playerId, p.name);
+    }));
+
     on("sit", handle((raw) => {
       const p = obj(raw);
       const { table, playerId } = ctx();

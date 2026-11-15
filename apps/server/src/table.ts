@@ -542,6 +542,16 @@ export class Table {
     this.changed();
   }
 
+  /** A player changes their own name at this table. The change is announced in the table log so nobody can swap names unnoticed. */
+  setName(playerId: string, rawName: unknown): void {
+    const p = this.get(playerId);
+    const name = this.uniqueName(this.cleanName(rawName), p.id);
+    if (name === p.name) return;
+    this.addLog(`${p.name} changed their name to ${name}`);
+    p.name = name;
+    this.changed();
+  }
+
   private cleanAvatar(raw: unknown): string | null {
     if (raw === null) return null;
     if (typeof raw !== "string" || !isValidAvatar(raw)) throw new UserError("That avatar is not available.");

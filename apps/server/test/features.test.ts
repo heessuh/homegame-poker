@@ -24,6 +24,30 @@ describe("avatars", () => {
     expect(v.seats[2]!.avatar).toBeNull();
   });
 
+  it("setName renames the player, logs it, keeps names unique and rejects bad names", () => {
+    const r = rig(2);
+    const [a, b] = r.ids as [string, string];
+    r.table.sit(a, 0, 100);
+    r.table.sit(b, 1, 100);
+    r.table.setName(a, "  Fred   S ");
+    let v = r.table.viewFor(b);
+    expect(v.seats[0]!.name).toBe("Fred S");
+    expect(v.log).toContain("P0 changed their name to Fred S");
+    // Same name again: nothing happens, nothing logged.
+    const n = v.log.length;
+    r.table.setName(a, "Fred S");
+    expect(r.table.viewFor(b).log.length).toBe(n);
+    // A name someone else has gets a number, as on joining.
+    r.table.setName(b, "fred s");
+    v = r.table.viewFor(a);
+    expect(v.seats[1]!.name).toBe("fred s2");
+    expect(() => r.table.setName(a, "   ")).toThrow(UserError);
+    expect(() => r.table.setName(a, "x".repeat(21))).toThrow(UserError);
+    expect(() => r.table.setName(a, 5)).toThrow(UserError);
+    expect(() => r.table.setName("nobody", "Zed")).toThrow(UserError);
+    expect(r.table.viewFor(b).seats[0]!.name).toBe("Fred S");
+  });
+
   it("setAvatar changes, clears and survives a reconnect without avatar", () => {
     const r = rig(1);
     const id = r.ids[0]!;

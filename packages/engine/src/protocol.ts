@@ -363,6 +363,7 @@ export interface TableView {
 export interface ClientToServerEvents {
   join: (p: { tableId: string; name: string; playerToken: string; avatar?: string | null }) => void;
   setAvatar: (p: { avatar: string | null }) => void;
+  setName: (p: { name: string }) => void;
   sit: (p: { seat: number; buyIn: number }) => void;
   stand: () => void; // cash out at end of current hand
   postBlind: (p: { post: boolean }) => void;
