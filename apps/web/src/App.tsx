@@ -36,7 +36,10 @@ function useHash(): string {
 export function App() {
   const tableId = useHash();
   const [name, setName] = useState(() => storeGet("hg.name") ?? "");
-  const [joined, setJoined] = useState(() => !!storeGet("hg.name"));
+  // The name is asked once per table (pre-filled with the last one used), so a new table never joins under an old name
+  // without asking. Reloading or reconnecting to a table already joined in this browser goes straight back in.
+  const [joinedId, setJoinedId] = useState<string | null>(null);
+  const joined = !!tableId && (joinedId === tableId || storeGet("hg.joined." + tableId) === "1");
   const [avatar, setAvatar] = useState<string | null>(() => loadAvatar());
   const changeAvatar = useCallback((a: string | null) => { saveAvatar(a); setAvatar(a); }, []);
   const [toast, setToast] = useState<string | null>(null);
@@ -58,7 +61,7 @@ export function App() {
         initial={name}
         avatar={avatar}
         onAvatar={changeAvatar}
-        onJoin={(n) => { storeSet("hg.name", n); setName(n); setJoined(true); }}
+        onJoin={(n) => { storeSet("hg.name", n); storeSet("hg.joined." + tableId, "1"); setName(n); setJoinedId(tableId); }}
       />
     );
   } else body = <LiveRoom tableId={tableId} name={name.trim()} avatar={avatar} onAvatar={changeAvatar} showToast={showToast} />;
