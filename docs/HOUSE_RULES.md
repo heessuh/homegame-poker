@@ -142,4 +142,4 @@ The host can switch 5-Murder to cards speak instead. Then nobody declares: the b
 
 ## Dealer controls
 
-The dealer handles the money side of the game. Rebuys go through the dealer; players can’t add chips themselves. By default the dealer awards every pot, and confirms each payout with **Next hand** before the next deal. The host can switch awarding to Automatic. The dealer can also move chips between players, sit a player out who forgot to, shuffle the seats, and change the time limit for any player. Everything the dealer does is written in the hand log.
+The dealer handles the money side of the game. Adding money goes through the dealer; players can’t add chips themselves. The dealer can add to, remove from, or set any player’s stack, and can pause and resume the game at any moment. By default the dealer awards every pot, and confirms each payout with **Next hand** before the next deal. The host can switch awarding to Automatic. The dealer can also move chips between players, sit a player out who forgot to, shuffle the seats, and change the time limit for any player. Everything the dealer does is written in the hand log.

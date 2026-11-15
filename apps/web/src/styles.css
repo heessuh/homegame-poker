@@ -600,3 +600,136 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 
 .card.rabbit { opacity: .55; outline: 1px dashed rgba(227,183,101,.7); outline-offset: -1px; }
 .rabbitlabel { text-align: center; margin-top: .15rem; }
+
+/* ------------------------------------------------------------------------------------------------------------------
+   Larger, roomier table (friends' feedback, November 2026): bigger cards, names and stacks, a seat "pod" with the
+   avatar beside the name, a bright highlight on the player to act, the winning hand's rank on the cards.
+   Sizes scale with the table's height, so a small laptop screen still fits everything.
+   ------------------------------------------------------------------------------------------------------------------ */
+html, body { font-size: 16px; }
+.btn.small { min-height: 40px; padding: 8px 14px; font-size: 14.5px; }
+.btn.tiny { min-height: 34px; padding: 5px 12px; font-size: 13.5px; }
+.small { font-size: 13px; }
+.log div { font-size: 14px; }
+.tabs button { font-size: 14.5px; }
+.form label { font-size: 13px; }
+.psub, .psub select { font-size: 13px; }
+.pmoney { flex-wrap: wrap; align-items: center; }
+.pmoney .moneyin { flex: 1 1 100%; max-width: none; }
+.pmoney .btn { flex: 1 1 auto; }
+
+.pod { position: relative; z-index: 2; width: 100%; display: flex; flex-direction: column; align-items: center; }
+.name { font-size: 12px; }
+.stack { font-size: 13.5px; }
+.tag { font-size: 10px; }
+.seat-note { font-size: 11.5px; padding: 2px 8px; }
+.seat-note.win { font-size: 13px; }
+.betamt { font-size: 13px; }
+.phase { font-size: 11.5px; }
+.secs { top: -11px; right: -20px; font-size: 13px; padding: 1px 8px; white-space: nowrap; }
+.secs.frozen { background: #cfd6e4; color: #1b2434; }
+.hostctl button { font-size: 13px; padding: 6px 12px; }
+.extendbtn { top: -42px; right: -6px; font-size: 14px; padding: 8px 14px; white-space: nowrap; }
+.btn.extend { min-height: 50px; font-size: 16px; padding: 8px 22px; border-radius: 14px; }
+.extend-row { max-width: 880px; justify-content: center; gap: 12px; }
+
+/* Player to act: the whole name plate turns bright and glows, so nobody has to hunt for whose turn it is. */
+.seat.toact { z-index: 6; }
+.seat.toact .plate {
+  background: linear-gradient(180deg, #ffe89a, #f4b93a); border-color: #fff3c4;
+  box-shadow: 0 0 0 3px rgba(255, 221, 120, .65), 0 0 30px 8px rgba(255, 200, 60, .7), 0 4px 10px rgba(0, 0, 0, .65);
+  animation: turnGlow 1.25s ease-in-out infinite;
+}
+.seat.toact .name, .seat.toact .stack { color: #2a1702; }
+.seat.toact .avatar-circle { border-color: #fff3c4; }
+@keyframes turnGlow {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(255, 221, 120, .65), 0 0 18px 4px rgba(255, 200, 60, .45), 0 4px 10px rgba(0, 0, 0, .65); }
+  50% { box-shadow: 0 0 0 5px rgba(255, 221, 120, .9), 0 0 40px 12px rgba(255, 200, 60, .85), 0 4px 10px rgba(0, 0, 0, .65); }
+}
+
+/* Winning hand: its rank sits on the winner's cards, and the middle of the table says who won with what. */
+.ranks { position: relative; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 2px; margin: -10px 0 3px; }
+.rank { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; line-height: 1.25; padding: 2px 9px; border-radius: 7px; background: #2b62c4; color: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .25); text-align: center; }
+.rank.low { background: #b8433b; }
+.winbanner { max-width: 100%; background: rgba(16, 9, 5, .82); border: 1px solid rgba(244, 215, 155, .65); color: var(--gold2); border-radius: 14px; padding: 6px 16px; font-size: 15px; font-weight: 600; line-height: 1.35; box-shadow: 0 0 24px rgba(227, 183, 101, .35); animation: pop .3s var(--ease) both; }
+.winbanner b { color: #fff; font-weight: 800; }
+.pausedbadge { font-size: 16px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; background: rgba(20, 12, 8, .88); color: var(--gold2); border: 2px solid var(--gold); border-radius: 99px; padding: 6px 20px; box-shadow: 0 0 24px rgba(227, 183, 101, .4); }
+
+@media (max-width: 699px) {
+  .seat { width: 80px; }
+  .card.sm { --cw: 28px; }
+}
+
+@media (min-width: 700px) {
+  .table-wrap {
+    --table-reserve: 262px; --table-min: 430px; --table-max: min(800px, calc((100vw - 16px) * 10 / 16));
+    max-width: min(1500px, calc(var(--table-h) * 2)); margin-top: 28px; margin-bottom: 46px;
+    --sw: clamp(136px, calc(var(--table-h) * .27), 200px);
+    --csm: clamp(36px, calc(var(--table-h) * .076), 56px);
+    --clg: clamp(50px, calc(var(--table-h) * .102), 76px);
+    --cmd: clamp(52px, calc(var(--table-h) * .115), 88px);
+    --fs: clamp(13.5px, calc(var(--table-h) * .0265), 19px);
+  }
+  .table-wrap .seat { --av: clamp(38px, calc(var(--table-h) * .072), 54px); width: var(--sw); }
+  .table-wrap .seat.me { --av: clamp(42px, calc(var(--table-h) * .08), 60px); width: calc(var(--sw) * 1.22); }
+  .table-wrap .seat.empty { width: auto; }
+  .table-wrap .card.sm { --cw: var(--csm); }
+  .table-wrap .card.md { --cw: var(--cmd); }
+  .table-wrap .card.lg, .table-wrap .seat.me .card.lg { --cw: var(--clg); }
+  .table-wrap .cardrow.hole { margin-bottom: 0; }
+  .table-wrap .cardrow.hole > .card.sm + .card.sm { margin-left: calc(var(--csm) * -.44); }
+  .table-wrap .cardrow.hole[data-n="4"] > .card.sm + .card.sm, .table-wrap .cardrow.hole[data-n="5"] > .card.sm + .card.sm, .table-wrap .cardrow.hole[data-n="6"] > .card.sm + .card.sm { margin-left: calc(var(--csm) * -.6); }
+  .table-wrap .cardrow.hole > .card.lg + .card.lg { margin-left: calc(var(--clg) * -.42); }
+  .table-wrap .cardrow.hole[data-n="4"] > .card.lg + .card.lg, .table-wrap .cardrow.hole[data-n="5"] > .card.lg + .card.lg { margin-left: calc(var(--clg) * -.56); }
+  .board { gap: clamp(5px, calc(var(--table-h) * .012), 10px); }
+  .center { width: 56%; gap: clamp(6px, calc(var(--table-h) * .016), 12px); }
+  .pot { font-size: calc(var(--fs) * 1.05); padding: 6px 18px 6px 13px; }
+  .phase { font-size: calc(var(--fs) * .72); }
+  .waiting .big { font-size: calc(var(--fs) * 1.4); }
+  .waiting .muted { font-size: calc(var(--fs) * .9); }
+  .winbanner { font-size: calc(var(--fs) * 1.05); padding: 8px 20px; }
+  .pausedbadge { font-size: calc(var(--fs) * 1.15); padding: 8px 26px; }
+  .betamt { font-size: calc(var(--fs) * .92); padding: 2px 10px; }
+  .sitbtn { font-size: calc(var(--fs) * .85); padding: 8px 16px; }
+  .openseat { font-size: calc(var(--fs) * .78); }
+
+  /* The seat pod: avatar beside the name and stack, on one wide plate. */
+  .table-wrap .pod {
+    flex-direction: row-reverse; gap: 8px; margin-top: -9px; padding: 6px 8px 6px 12px;
+    background: linear-gradient(180deg, #33231a, #1b110b); border: 1px solid #5a412c; border-radius: 14px;
+    box-shadow: 0 5px 14px rgba(0, 0, 0, .7), inset 0 1px 0 rgba(255, 255, 255, .07);
+  }
+  .table-wrap .ranks + .pod { margin-top: 0; }
+  .table-wrap .pod .plate, .table-wrap .seat.me .pod .plate, .table-wrap .seat.toact .pod .plate, .table-wrap .seat.winner .pod .plate {
+    flex: 1; min-width: 0; margin: 0; padding: 0; text-align: left; background: none; border: 0; box-shadow: none; animation: none;
+  }
+  .table-wrap .seat.me .avwrap { margin-top: 0; }
+  .table-wrap .name { font-size: var(--fs); line-height: 1.25; }
+  .table-wrap .stack { font-size: calc(var(--fs) * 1.16); line-height: 1.2; }
+  .table-wrap .tag { font-size: calc(var(--fs) * .68); padding: 2px 8px; }
+  .table-wrap .tags { margin-top: 5px; }
+  .table-wrap .seat-note { font-size: calc(var(--fs) * .8); margin-top: 4px; padding: 2px 10px; }
+  .table-wrap .seat-note.win { font-size: calc(var(--fs) * .95); }
+  .table-wrap .rank { font-size: calc(var(--fs) * .78); padding: 3px 11px; }
+  .table-wrap .secs { font-size: calc(var(--fs) * .88); top: -13px; right: -14px; padding: 2px 9px; }
+  .table-wrap .dealer { width: 24px; height: 24px; font-size: 13px; right: -7px; bottom: -7px; }
+  .table-wrap .seat.folded .pod { opacity: .55; filter: saturate(.6); }
+  .table-wrap .seat.folded .avwrap, .table-wrap .seat.folded .plate { opacity: 1; filter: none; }
+  .table-wrap .seat.winner .pod { border-color: var(--gold2); background: linear-gradient(180deg, #46321f, #2b1d12); animation: winGlow 1.3s ease-in-out 3; }
+  .table-wrap .seat.toact .pod {
+    background: linear-gradient(180deg, #ffe89a, #f4b93a); border-color: #fff3c4;
+    box-shadow: 0 0 0 3px rgba(255, 221, 120, .65), 0 0 30px 8px rgba(255, 200, 60, .7), 0 5px 14px rgba(0, 0, 0, .7);
+    animation: turnGlow 1.25s ease-in-out infinite;
+  }
+  .table-wrap .seat.toact .avatar-circle { animation: none; }
+  .table-wrap .ring-track { stroke: rgba(0, 0, 0, .7); }
+  .table-wrap .seat.toact .ring-fill { stroke: #7a3d00; filter: none; }
+  .table-wrap .seat.toact .ring.low .ring-fill { stroke: #d81e12; }
+  .actionbar .btn-row .btn { min-height: 56px; font-size: 17px; }
+}
+.ranks { width: max-content; max-width: 160%; }
+@media (min-width: 700px) {
+  /* Your own seat hangs below the table, right above the action bar: its dealer buttons go beside it, not under it. */
+  .table-wrap .seat.me .hostctl { top: auto; bottom: 6px; left: 100%; margin: 0 0 0 10px; flex-direction: column; gap: 5px; }
+}
+@media (min-width: 700px) { .table-wrap .seat.me .pod { margin-top: 5px; } }

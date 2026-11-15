@@ -93,6 +93,8 @@ export interface Player {
   standQueued: boolean;
   kickQueued: boolean;
   adjustQueued: number;
+  /** The dealer set this player's stack during a hand; applied when the hand ends, before adjustQueued. */
+  setQueued?: number | null;
   /** Sitting out only because the chips ran out (a dealer top-up sits them back in). */
   busted: boolean;
   /** Cash board games: joined mid-game or the big blind passed while away. Not dealt in until it comes around or they post. */
@@ -169,6 +171,8 @@ interface HandCtx {
   reveal: { deck: Card[]; salt: string };
   participants: Set<string>;
   actionDeadline: number | null;
+  /** Time left on the frozen action clock while the game is paused; null when no clock is frozen. */
+  pausedLeftMs: number | null;
   /** The player to act already used this turn's time extension. */
   extended: boolean;
   /** Stack of each participant when the hand began (for tournament ranking). */
@@ -381,7 +385,7 @@ export class Table {
     this.hand = s.hand
       ? {
           state: s.hand.state, deckHash: s.hand.deckHash, reveal: s.hand.reveal, participants: new Set(s.hand.participants),
-          actionDeadline: null, extended: s.hand.extended, startStacks: new Map(s.hand.startStacks), awarded: s.hand.awarded, fair: s.hand.fair ?? null,
+          actionDeadline: null, pausedLeftMs: null, extended: s.hand.extended, startStacks: new Map(s.hand.startStacks), awarded: s.hand.awarded, fair: s.hand.fair ?? null,
         }
       : null;
     this.pendingAward = s.pendingAward;
@@ -720,6 +724,7 @@ export class Table {
     p.standQueued = false;
     p.kickQueued = false;
     p.adjustQueued = 0;
+    p.setQueued = null;
   }
 
   private seatOwner(seat: number): Player | undefined {
@@ -832,12 +837,25 @@ export class Table {
       if (this.status === "waiting") throw new UserError("The game has not started yet.");
       this.status = "paused";
       this.clearStartTimer();
-      this.addLog("The host paused the game (the current hand will finish)");
-      rec(`${host.name} paused the game (the current hand finishes first)`, { before: "playing", after: "paused" });
+      // Freeze the clock of the player to act; the hand stays exactly as it is until the host resumes.
+      const h = this.hand;
+      if (h && this.live() && h.actionDeadline !== null) {
+        h.pausedLeftMs = Math.max(0, h.actionDeadline - this.now());
+        h.actionDeadline = null;
+        this.clearActionTimer();
+      }
+      this.addLog("The host paused the game");
+      rec(`${host.name} paused the game`, { before: "playing", after: "paused", midHand: this.live() });
     } else {
       if (this.budgetNotice !== null) throw new UserError(this.budgetNotice);
       if (this.status !== "paused") throw new UserError("The game is not paused.");
       this.status = "playing";
+      const h = this.hand;
+      if (h && this.live() && h.pausedLeftMs !== null) {
+        h.actionDeadline = this.now() + h.pausedLeftMs;
+        this.scheduleActionTimer(h.pausedLeftMs);
+      }
+      if (h) h.pausedLeftMs = null;
       this.addLog("The host resumed the game");
       rec(`${host.name} resumed the game`, { before: "paused", after: "playing" });
     }
@@ -1051,12 +1069,12 @@ export class Table {
     const verb = delta > 0 ? "gave" : "took";
     const prep = delta > 0 ? "to" : "from";
     if (this.inLiveHand(t)) {
-      if (t.stack + t.adjustQueued + delta < 0) throw new UserError("That would take the stack below zero.");
+      if ((t.setQueued ?? t.stack) + t.adjustQueued + delta < 0) throw new UserError("That would take the stack below zero.");
       rec(`${host.name} ${verb} ${this.m(Math.abs(delta))} ${prep} ${t.name}’s stack, applied after this hand`, {
         playerId: t.id, playerName: t.name, delta, stackBefore, queued: true, tournament: this.isTourney(),
       });
       t.adjustQueued += delta;
-      this.addLog(`The host will adjust ${t.name}'s stack by ${delta > 0 ? "+" : ""}${this.m(delta)} after this hand`);
+      this.addLog(delta > 0 ? `The host will add ${this.m(delta)} to ${t.name}'s stack after this hand` : `The host will remove ${this.m(-delta)} from ${t.name}'s stack after this hand`);
     } else {
       this.applyAdjust(t, delta);
       rec(`${host.name} ${verb} ${this.m(Math.abs(delta))} ${prep} ${t.name}’s stack (${this.m(stackBefore)} to ${this.m(t.stack)})`, {
@@ -1065,6 +1083,33 @@ export class Table {
       this.eliminate();
     }
     this.changed();
+  }
+
+  /** The dealer sets a player's stack to an exact amount. The difference is recorded like money added or removed. */
+  hostSetStack(playerId: string, targetId: string, amount: number): void {
+    this.asHost(playerId, "setStack", (host, rec) => {
+      const t = this.players.get(targetId);
+      if (!t || t.seat === null) throw new UserError("That player is not seated.");
+      if (!isInt(amount) || amount < 0) throw new UserError("Enter a whole number, zero or more.");
+      const stackBefore = t.stack;
+      if (this.inLiveHand(t)) {
+        rec(`${host.name} set ${t.name}’s stack to ${this.m(amount)}, applied after this hand`, {
+          playerId: t.id, playerName: t.name, amount, stackBefore, queued: true, tournament: this.isTourney(),
+        });
+        t.setQueued = amount;
+        t.adjustQueued = 0;
+        this.addLog(`The host will set ${t.name}'s stack to ${this.m(amount)} after this hand`);
+      } else {
+        if (amount === t.stack) throw new UserError(`${t.name} already has ${this.m(amount)}.`);
+        this.addLog(`The host set ${t.name}'s stack to ${this.m(amount)}`);
+        this.applyAdjust(t, amount - t.stack);
+        rec(`${host.name} set ${t.name}’s stack to ${this.m(amount)} (was ${this.m(stackBefore)})`, {
+          playerId: t.id, playerName: t.name, amount, stackBefore, stackAfter: t.stack, delta: amount - stackBefore, queued: false, tournament: this.isTourney(),
+        });
+        this.eliminate();
+      }
+      this.changed();
+    });
   }
 
   private applyAdjust(t: Player, delta: number): void {
@@ -1089,6 +1134,7 @@ export class Table {
     const h = this.hand;
     if (!h || h.state.outcome) throw new UserError("No hand is in progress.");
     if (p.seat === null || h.state.toActSeat !== p.seat) throw new UserError("It is not your turn.");
+    if (this.status === "paused") throw new UserError("The game is paused. Wait for the host to resume.");
     if (!act || typeof act !== "object") throw new UserError("Invalid action.");
     if (act.type === "raise" && !isInt(act.amount)) throw new UserError("Enter a whole number of chips.");
     if (act.type === "exchange" && act.card !== null && (typeof act.card !== "string" || !CARD_RE.test(act.card))) throw new UserError("Pick one of your cards.");
@@ -1108,7 +1154,7 @@ export class Table {
     switch (act.type) {
       case "fold": text = "folds"; break;
       case "check": text = "checks"; break;
-      case "call": text = legal ? `calls ${this.m(legal.callAmount)}` : "calls"; break;
+      case "call": text = legal ? (legal.callAmount === 0 ? "checks" : `calls ${this.m(legal.callAmount)}`) : "calls"; break;
       case "raise": text = `${hadBet ? "raises" : "bets"} to ${this.m(act.amount)}`; break;
       case "exchange": {
         const mine = before.players.find((q) => q.playerId === p.id);
@@ -1203,9 +1249,17 @@ export class Table {
     const sec = actor?.timerSec ?? this.config.actionTimeoutSec;
     if (h.state.outcome || h.state.toActSeat === null || sec <= 0) {
       h.actionDeadline = null;
+      h.pausedLeftMs = null;
       return;
     }
     const ms = sec * 1000;
+    if (this.status === "paused") {
+      // The turn changed while the game is paused (the host timed someone out, or a player left): hold a full, frozen clock.
+      h.actionDeadline = null;
+      h.pausedLeftMs = ms;
+      return;
+    }
+    h.pausedLeftMs = null;
     h.actionDeadline = this.now() + ms;
     this.scheduleActionTimer(ms);
   }
@@ -1229,6 +1283,7 @@ export class Table {
     const p = this.get(playerId);
     const h = this.hand;
     if (!h || h.state.outcome || h.state.toActSeat === null || p.seat !== h.state.toActSeat) throw new UserError("It is not your turn.");
+    if (this.status === "paused") throw new UserError("The game is paused. Your clock is stopped.");
     if (h.actionDeadline === null || this.config.extensionSec <= 0) throw new UserError("There is no time limit to extend.");
     if (h.extended) throw new UserError("You already used your extra time this turn.");
     h.extended = true;
@@ -1332,7 +1387,7 @@ export class Table {
       ...extra,
     } as StartHandInput);
     this.hand = {
-      state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null, extended: false,
+      state, deckHash: hash, reveal, participants: new Set(el.map((p) => p.id)), actionDeadline: null, pausedLeftMs: null, extended: false,
       startStacks: new Map(el.map((p) => [p.id, p.stack])), awarded: null, fair,
     };
     const btn = this.seatOwner(button);
@@ -1384,6 +1439,7 @@ export class Table {
     const o = h.state.outcome!;
     this.clearActionTimer();
     h.actionDeadline = null;
+    h.pausedLeftMs = null;
     const hostMode = this.config.awardMode === "host";
     const won = new Map<string, number>();
     for (const w of o.winners) won.set(w.playerId, (won.get(w.playerId) ?? 0) + w.amount);
@@ -1466,6 +1522,12 @@ export class Table {
     // Players who stay: queued rebuys and adjustments.
     for (const p of this.seated()) {
       if (p.kickQueued || p.standQueued) continue;
+      if (p.setQueued !== null && p.setQueued !== undefined) {
+        const d = p.setQueued - p.stack;
+        p.setQueued = null;
+        this.addLog(`The host set ${p.name}'s stack to ${this.m(p.stack + d)}`);
+        if (d !== 0) this.applyAdjust(p, d);
+      }
       if (p.adjustQueued !== 0) {
         const d = p.adjustQueued;
         p.adjustQueued = 0;
@@ -1711,9 +1773,12 @@ export class Table {
     if (!isInt(seconds) || seconds < 10 || seconds > 300) throw new UserError("Add 10 to 300 seconds.");
     const t = this.onClock(targetId);
     const h = this.hand!;
-    if (h.actionDeadline === null) throw new UserError(`${t.name} has no time limit right now.`);
-    h.actionDeadline += seconds * 1000;
-    this.scheduleActionTimer(Math.max(0, h.actionDeadline - this.now()));
+    if (h.pausedLeftMs !== null) h.pausedLeftMs += seconds * 1000;
+    else {
+      if (h.actionDeadline === null) throw new UserError(`${t.name} has no time limit right now.`);
+      h.actionDeadline += seconds * 1000;
+      this.scheduleActionTimer(Math.max(0, h.actionDeadline - this.now()));
+    }
     this.addLog(`Dealer gave ${t.name} ${seconds} more seconds`);
     rec(`${host.name} gave ${t.name} ${seconds} more seconds on the clock`, { playerId: t.id, playerName: t.name, seconds });
     this.changed();
@@ -2060,6 +2125,7 @@ export class Table {
         toActSeat: toAct,
         stage: h.state.stage ?? (toAct !== null ? "bet" : null),
         actionDeadline: done ? null : h.actionDeadline,
+        actionLeftMs: done ? null : h.actionDeadline !== null ? Math.max(0, h.actionDeadline - this.now()) : h.pausedLeftMs,
         legal: actor && actor.id === me.id ? legalActions(h.state, me.id) : null,
         deckHash: h.deckHash,
         winners: h.state.outcome ? (h.awarded ?? (h.state.outcome.winners as WinnerView[])) : null,

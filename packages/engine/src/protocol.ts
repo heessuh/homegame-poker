@@ -208,7 +208,12 @@ export interface HandView {
   toActSeat: number | null;
   /** What the player to act is doing: betting, exchanging (stud) or declaring (stud). */
   stage: "bet" | "exchange" | "declare" | null;
-  actionDeadline: number | null; // epoch ms
+  actionDeadline: number | null; // epoch ms on the server's clock; null while the game is paused
+  /**
+   * Milliseconds left on the action clock when this view was made. Clients count down from the moment they receive it,
+   * so a device whose own clock is wrong still shows the right time. While the game is paused it stays frozen.
+   */
+  actionLeftMs?: number | null;
   /** Present only for the viewer, only when it is the viewer's turn. */
   legal: LegalActions | null;
   deckHash: string;
@@ -379,6 +384,7 @@ export interface ClientToServerEvents {
   action: (p: PlayerAction) => void;
   "host:start": () => void;
   "host:pause": (p: { paused: boolean }) => void;
+  "host:setStack": (p: { playerId: string; amount: number }) => void;
   "host:config": (p: Partial<TableConfig>) => void;
   "host:kick": (p: { playerId: string }) => void;
   "host:handOff": (p: { playerId: string }) => void;

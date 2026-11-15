@@ -250,14 +250,87 @@ describe("config and host", () => {
     expect(v.seats).toHaveLength(7);
   });
 
-  it("pause stops new hands; resume continues", () => {
+  it("pause freezes the hand and the action clock; resume continues from where it stopped", () => {
+    const r = rig(2, { actionTimeoutSec: 30 });
+    seatAll(r);
+    const host = r.ids[0]!;
+    r.table.hostStart(host);
+    r.clock.advance(1000);
+    r.clock.advance(10_000);
+    const who = actor(r)!;
+    r.table.hostPause(host, true);
+    let v = r.table.viewFor(host);
+    expect(v.status).toBe("paused");
+    expect(v.hand!.actionDeadline).toBeNull();
+    expect(v.hand!.actionLeftMs).toBe(20_000);
+    // Nobody can act, ask for more time, or time out while the game is paused.
+    expect(() => r.table.action(who, { type: "fold" })).toThrow(/paused/);
+    expect(() => r.table.extendTime(who)).toThrow(/paused/);
+    r.clock.advance(600_000);
+    expect(actor(r)).toBe(who);
+    expect(r.table.viewFor(host).hand!.actionLeftMs).toBe(20_000);
+    // The host can still add time to the frozen clock.
+    r.table.hostAddTime(host, who, 30);
+    expect(r.table.viewFor(host).hand!.actionLeftMs).toBe(50_000);
+    r.table.hostPause(host, false);
+    v = r.table.viewFor(host);
+    expect(v.status).toBe("playing");
+    expect(v.hand!.actionDeadline).toBe(r.clock.now() + 50_000);
+    expect(v.hand!.actionLeftMs).toBe(50_000);
+    r.clock.advance(49_000);
+    expect(actor(r)).toBe(who);
+    r.clock.advance(1_000);
+    expect(actor(r)).not.toBe(who);
+  });
+
+  it("a view reports the time left on the clock, not only the server's deadline", () => {
+    const r = rig(2, { actionTimeoutSec: 30 });
+    seatAll(r);
+    r.table.hostStart(r.ids[0]!);
+    r.clock.advance(1000);
+    r.clock.advance(12_000);
+    const h = r.table.viewFor(r.ids[1]!).hand!;
+    expect(h.actionLeftMs).toBe(18_000);
+    expect(h.actionDeadline).toBe(r.clock.now() + 18_000);
+  });
+
+  it("host sets a stack: at once between hands, after the hand when one is running", () => {
+    const r = rig(2);
+    seatAll(r);
+    const [a, b] = r.ids as [string, string];
+    const stackOf = (id: string) => r.table.viewFor(a).seats.find((s) => s?.playerId === id)!.stack;
+    const led = (id: string) => r.table.viewFor(a).ledger.find((e) => e.playerId === id)!;
+    const base = stackOf(b);
+    r.table.hostSetStack(a, b, base + 150);
+    expect(stackOf(b)).toBe(base + 150);
+    expect(led(b).buyIns).toBe(base + 150);
+    r.table.hostSetStack(a, b, 40);
+    expect(stackOf(b)).toBe(40);
+    expect(led(b).cashOuts).toBe(base + 110);
+    expect(led(b).net).toBe(0);
+    expect(() => r.table.hostSetStack(a, b, 40)).toThrow(/already/);
+    expect(() => r.table.hostSetStack(a, b, -1)).toThrow(UserError);
+    expect(() => r.table.hostSetStack(a, b, 1.5)).toThrow(UserError);
+    expect(() => r.table.hostSetStack(b, a, 5)).toThrow(/host/);
+    r.table.hostStart(a);
+    r.clock.advance(1000);
+    r.table.hostSetStack(a, b, 500);
+    expect(stackOf(b)).toBeLessThan(500);
+    foldAround(r);
+    expect(stackOf(b)).toBe(500);
+    const v = r.table.viewFor(a);
+    expect(v.ledger.reduce((x, e) => x + e.net, 0)).toBe(0);
+    expect(v.log.some((l) => /set P1's stack to/.test(l))).toBe(true);
+  });
+
+  it("pause between hands stops new hands; resume continues", () => {
     const r = rig(2);
     seatAll(r);
     const host = r.ids[0]!;
     r.table.hostStart(host);
     r.clock.advance(1000);
-    r.table.hostPause(host, true);
     foldAround(r);
+    r.table.hostPause(host, true);
     r.clock.advance(20_000);
     expect(r.table.viewFor(host).status).toBe("paused");
     expect(r.table.viewFor(host).hand!.handNumber).toBe(1);

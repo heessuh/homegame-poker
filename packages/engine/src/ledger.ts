@@ -17,7 +17,7 @@ export interface DealerEntry {
   at: number;
   hostId: string;
   hostName: string;
-  /** Stable machine id: award, transfer, rebuy, takeChips, sitOut, remove, settings, variant, mode, start, pause, resume, ... */
+  /** Stable machine id: award, transfer, rebuy, takeChips, setStack, sitOut, remove, settings, variant, mode, start, pause, resume, ... */
   action: string;
   /** Plain English, names and money already formatted. */
   summary: string;

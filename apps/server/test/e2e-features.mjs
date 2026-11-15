@@ -30,8 +30,9 @@ const before = H.v.seats.map((s) => s?.stack ?? 0);
 H.s.emit("host:award", { awards: [{ playerId: H.v.seats[2].playerId, amount: pot }], reason: "test override" }); await wait(300);
 ok(!H.v.pendingAward && H.v.seats[2].stack === before[2] + pot, "award paid to chosen player");
 ok(A.v.pendingAward === null, "others see award cleared");
-H.s.emit("host:pause", { paused: true }); H.auto = A.auto = B.auto = false;
+H.auto = A.auto = B.auto = false;
 for (let i = 0; i < 40 && (H.v.hand && H.v.hand.phase !== "complete" || H.v.pendingAward); i++) { const l = [H, A, B].find((c) => c.v.hand?.legal); if (l) l.s.emit("action", { type: "call" }); if (H.v.pendingAward) H.s.emit("host:award", { awards: H.v.pendingAward.suggested }); await wait(300); }
+H.s.emit("host:pause", { paused: true }); await wait(200); // a pause now freezes a running hand, so it comes after the hand
 H.s.emit("host:config", { awardMode: "auto", mode: "tournament", tournament: { startingStack: 500, lateRegLevels: 0, levels: [{ smallBlind: 10, bigBlind: 20, minutes: 1 }, { smallBlind: 50, bigBlind: 100, minutes: 1 }, { smallBlind: 200, bigBlind: 400, minutes: 1 }] } });
 await wait(300); ok(H.v.config.mode === "tournament" && H.v.tournament?.status === "registering", "tournament set up: " + H.errors.slice(-1));
 H.s.emit("host:pause", { paused: false }); H.s.emit("host:start"); await wait(500);

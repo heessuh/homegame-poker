@@ -318,6 +318,7 @@ describe("dealer ledger: every host path is logged", () => {
     hostKick: () => { const r = hand(); return { r, run: (h) => r.table.hostKick(h, r.ids[2]!) }; },
     hostHandOff: () => { const r = hand(); return { r, run: (h) => r.table.hostHandOff(h, r.ids[2]!) }; },
     hostAdjustStack: () => { const r = hand(); return { r, run: (h) => r.table.hostAdjustStack(h, r.ids[2]!, 10) }; },
+    hostSetStack: () => { const r = hand(); return { r, run: (h) => r.table.hostSetStack(h, r.ids[2]!, 77) }; },
     hostAward: () => {
       const r = hand();
       foldAround(r);

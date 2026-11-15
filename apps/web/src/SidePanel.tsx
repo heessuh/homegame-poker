@@ -314,7 +314,8 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
   if (!Number.isInteger(ex) || ex < 0 || ex > 300) problems.push("Player extension must be 0 (off) to 300 seconds.");
   const maxPlayers = VARIANTS[draft.variant].maxPlayers;
   const players = view.seats.filter((s): s is SeatView => s !== null);
-  const [rebuyAmt, setRebuyAmt] = useState<Record<string, number>>({});
+  const [moneyAmt, setMoneyAmt] = useState<Record<string, number>>({});
+  const moneyWord = view.config.mode === "tournament" || view.config.money === "chips" ? "chips" : "money";
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [moveAmt, setMoveAmt] = useState(1000);
@@ -448,17 +449,19 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
       </div>
 
       <h4>Players</h4>
-      <p className="muted small">Rebuys and cash-outs are dealer-only and go into the ledger. They apply between hands (queued during a hand).</p>
+      <p className="muted small">Type an amount, then add it, remove it, or set the player’s {moneyWord} to exactly that amount. Only the dealer can do this, and every change goes into the ledger and the dealer log. During a hand, the change applies when the hand ends.</p>
       {players.length === 0 && <p className="muted">Nobody is seated.</p>}
       {players.map((s) => (
         <div key={s.playerId} className="prow">
           <span className="pname"><Who avatar={s.avatar} name={s.name} /> <span className="muted">{fmt(s.stack)}</span>{s.stack === 0 && !s.inHand && <span className="muted"> · out of chips</span>}</span>
           <div className="pmoney">
-            <MoneyInput value={rebuyAmt[s.playerId] ?? view.config.minBuyIn} min={1} onChange={(n) => setRebuyAmt((m) => ({ ...m, [s.playerId]: n }))} label={`Rebuy or cash-out amount for ${s.name}`} />
-            <button className="btn tiny call" title="Record a buy-in and add these chips to the stack"
-              onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: rebuyAmt[s.playerId] ?? view.config.minBuyIn })}>Rebuy</button>
-            <button className="btn tiny" title="Record a cash-out and remove these chips from the stack"
-              onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: -(rebuyAmt[s.playerId] ?? view.config.minBuyIn) })}>Cash out</button>
+            <MoneyInput value={moneyAmt[s.playerId] ?? view.config.minBuyIn} min={0} onChange={(n) => setMoneyAmt((m) => ({ ...m, [s.playerId]: n }))} label={`Amount of ${moneyWord} for ${s.name}`} />
+            <button className="btn tiny call" title="Add this amount to the player’s stack (recorded as a buy-in)" disabled={!((moneyAmt[s.playerId] ?? view.config.minBuyIn) > 0)}
+              onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: moneyAmt[s.playerId] ?? view.config.minBuyIn })}>Add {moneyWord}</button>
+            <button className="btn tiny" title="Remove this amount from the player’s stack (recorded as a cash-out)" disabled={!((moneyAmt[s.playerId] ?? view.config.minBuyIn) > 0)}
+              onClick={() => send("host:adjustStack", { playerId: s.playerId, delta: -(moneyAmt[s.playerId] ?? view.config.minBuyIn) })}>Remove</button>
+            <button className="btn tiny" title="Set the player’s stack to exactly this amount"
+              onClick={() => send("host:setStack", { playerId: s.playerId, amount: moneyAmt[s.playerId] ?? view.config.minBuyIn })}>Set</button>
           </div>
           <button
             className="btn tiny"
@@ -486,7 +489,7 @@ function HostPanel({ view, send }: { view: TableView; send: Send }) {
             )}
             {actingId === s.playerId && (
               <>
-                {view.hand?.actionDeadline != null && <button className="btn tiny" onClick={() => send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}
+                {(view.hand?.actionLeftMs ?? view.hand?.actionDeadline) != null && <button className="btn tiny" onClick={() => send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}
                 <button className="btn tiny danger" onClick={() => send("host:forceTimeout", { playerId: s.playerId })}>Time out now</button>
               </>
             )}

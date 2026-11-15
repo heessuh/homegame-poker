@@ -8,14 +8,14 @@ export function ActionBar({ view, onAction, onExtend }: { view: TableView; onAct
   const legal = view.hand?.legal;
   if (!legal) return null;
   const ext = view.canExtend && view.config.extensionSec > 0 ? (
-    <button type="button" className="btn small extend" onClick={onExtend}>+{view.config.extensionSec}s</button>
+    <button type="button" className="btn extend" onClick={onExtend}>More time +{view.config.extensionSec}s</button>
   ) : null;
   let panel: React.ReactNode;
   if (legal.exchange && view.hand?.stage !== "bet") {
     panel = <ExchangePanel key={`${view.hand?.handNumber}-${view.hand?.phase}`} ex={legal.exchange} onAction={onAction} />;
   } else if (legal.declare) panel = <DeclarePanel onAction={onAction} />;
   else panel = <ActionBarInner view={view} legal={legal} onAction={onAction} />;
-  return <>{panel}{ext && <div className="extend-row">{ext}<span className="muted small">More time on your clock (once per turn)</span></div>}</>;
+  return <>{panel}{ext && <div className="extend-row">{ext}<span className="muted">Once per turn</span></div>}</>;
 }
 
 function ExchangePanel({ ex, onAction }: { ex: NonNullable<LegalActions["exchange"]>; onAction: (a: PlayerAction) => void }) {

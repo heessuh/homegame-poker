@@ -35,7 +35,7 @@ Next to your name you can show an avatar: an emoji (animals, card suits, or obje
 
 Your chips are the stack shown by your seat. Each hand, the blinds and bets come out of it, and winnings go into it. All money shows dollars and cents, like $40.00.
 
-If you run out of chips, you’ll see “Out of chips — ask the dealer for a rebuy.” Only the dealer can add chips for you. Tournaments don’t allow rebuys.
+If you run out of chips, you’ll see “Out of chips. Ask the dealer to add money.” Only the dealer can add money for you. Tournaments don’t allow it.
 
 Other buttons under your seat:
 
@@ -63,7 +63,7 @@ Keyboard shortcuts work when you’re not typing in a box:
 
 If the dealer turned on the action timer, a bar counts down on your seat when it’s your turn. If it runs out, you’re automatically checked or folded. The dealer sets the time limit (0 is off, or 5 to 300 seconds).
 
-When your timer is running, you can tap **+15s** once per turn to add time. The dealer sets how many seconds that gives you (default 15, or 0 to turn it off).
+When your timer is running, you can tap **More time +15s** once per turn to add time. If the dealer pauses the game, your clock stops until the game resumes. The dealer sets how many seconds that gives you (default 15, or 0 to turn it off).
 
 If you time out twice in a row without acting, you’re put in **sitting out** mode. Click **Sit in** when you’re back.
 

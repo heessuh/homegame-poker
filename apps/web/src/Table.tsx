@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { VARIANTS, tkoPoints } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack } from "./CardView";
@@ -21,8 +21,16 @@ export function Table({ view, onSit, onMe, send }: Props) {
   const { config, hand, you } = view;
   const n = config.maxSeats;
   const anchor = you.seat ?? 0;
-  const hasTimer = !!(hand?.actionDeadline && hand.toActSeat !== null);
-  const now = useNow(hasTimer);
+  // The clock counts down from the moment this view arrived, using the time left the server reported. It never
+  // compares the server's clock with this device's clock, so a device with a wrong clock still shows the right time.
+  const recvAt = useMemo(() => Date.now(), [view]);
+  const leftAtRecv = !hand || hand.toActSeat === null ? null
+    : hand.actionLeftMs !== undefined ? hand.actionLeftMs
+    : hand.actionDeadline !== null ? hand.actionDeadline - recvAt : null;
+  const clockFrozen = !!hand && hand.actionDeadline === null && leftAtRecv !== null;
+  const now = useNow(leftAtRecv !== null && !clockFrozen);
+  const leftMs = leftAtRecv === null ? null : clockFrozen ? leftAtRecv : Math.max(0, leftAtRecv - Math.max(0, now - recvAt));
+  const paused = view.status === "paused";
   const stud = isStud(config);
   const points = VARIANTS[config.variant]?.scoring === "points";
   const seatedCount = view.seats.filter(Boolean).length;
@@ -103,6 +111,8 @@ export function Table({ view, onSit, onMe, send }: Props) {
             {!stud && rabbit.length > 0 && <div className="rabbitlabel muted small">Would have come</div>}
             {stud && studStatus && <div className="studstatus">{studStatus}</div>}
             <div className="phase">Hand #{hand.handNumber} · {stud ? (STUD_STREETS[hand.phase] ?? hand.phase) : hand.phase}</div>
+            {paused && !hand.winners && <div className="pausedbadge" role="status">Paused{view.you.isHost ? " · press Resume to continue" : " by the host"}</div>}
+            {hand.winners && !pa && <WinBanner view={view} winners={hand.winners} />}
             {pa && <AwardAnnounce view={view} winners={shownWinners} />}
           </>
         ) : (
@@ -144,20 +154,18 @@ export function Table({ view, onSit, onMe, send }: Props) {
             isMe={isMe}
             style={style}
             toAct={hand?.toActSeat === i}
-            deadline={hand?.actionDeadline ?? null}
+            leftMs={hand?.toActSeat === i ? leftMs : null}
+            frozen={clockFrozen}
             timeoutSec={s.timeLimitSec ?? config.actionTimeoutSec}
             isHost={you.isHost}
             send={send}
             onMe={onMe}
-            now={now}
             stud={stud}
             points={points}
             board={board}
             wins={winnersByPlayer.get(s.playerId)}
             showdownDim={shownWinners.length > 0 && !winnersByPlayer.has(s.playerId)}
             betPos={bp}
-            canExtend={isMe && view.canExtend && config.extensionSec > 0}
-            extensionSec={config.extensionSec}
           />
         );
       })}
@@ -177,16 +185,20 @@ function hue(name: string): number {
 
 function SeatBlock(props: {
   idx: number; bb: number;
-  s: SeatView; isMe: boolean; style: React.CSSProperties; toAct: boolean; deadline: number | null;
-  timeoutSec: number; now: number; stud: boolean; points: boolean; board: string[]; wins?: WinnerView[]; showdownDim: boolean;
-  betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void; canExtend: boolean; extensionSec: number;
+  s: SeatView; isMe: boolean; style: React.CSSProperties; toAct: boolean; leftMs: number | null; frozen: boolean;
+  timeoutSec: number; stud: boolean; points: boolean; board: string[]; wins?: WinnerView[]; showdownDim: boolean;
+  betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void;
 }) {
   const { s, isMe, toAct, wins } = props;
   const size = isMe ? "lg" : "sm";
-  const frac = toAct && props.deadline && props.timeoutSec > 0
-    ? Math.max(0, Math.min(1, (props.deadline - props.now) / (props.timeoutSec * 1000)))
+  const frac = toAct && props.leftMs !== null && props.timeoutSec > 0
+    ? Math.max(0, Math.min(1, props.leftMs / (props.timeoutSec * 1000)))
     : null;
-  const secs = frac !== null && props.deadline ? Math.max(0, Math.ceil((props.deadline - props.now) / 1000)) : null;
+  // Always whole seconds; a minute or more shows as m:ss.
+  const secs = toAct && props.leftMs !== null ? Math.max(0, Math.ceil(props.leftMs / 1000)) : null;
+  const secsText = secs === null ? "" : secs >= 60 ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` : `${secs}s`;
+  // The winning hand's rank, shown on the winner's cards. High and low halves each get their own badge.
+  const ranks = wins ? [...new Map(wins.filter((w) => w.handName).map((w) => [w.half + "|" + w.handName, w])).values()] : [];
   const hostCtl = props.isHost && toAct;
   const winTotal = wins?.reduce((a, w) => a + w.amount, 0) ?? 0;
   const cls = ["seat", isMe ? "me" : "", toAct ? "toact" : "", s.folded ? "folded" : "", s.sittingOut ? "out" : "",
@@ -219,12 +231,18 @@ function SeatBlock(props: {
     : { background: `radial-gradient(circle at 35% 28%, hsl(${hue(s.name)} 38% 42%), hsl(${hue(s.name)} 40% 22%))` };
   const R = 24;
   const C = 2 * Math.PI * R;
-  const low = secs !== null && secs <= 5;
+  const low = secs !== null && secs <= 5 && !props.frozen;
 
   return (
     <>
       <div className={cls} style={props.style} data-seat={props.idx}>
         {cards}
+        {ranks.length > 0 && (
+          <div className="ranks">
+            {ranks.map((w) => <span key={w.half + w.handName} className={`rank ${w.half}`}>{w.half === "low" ? "Low: " : w.half === "high" ? "High: " : ""}{w.handName}</span>)}
+          </div>
+        )}
+        <div className="pod">
         <div className="avwrap">
           {frac !== null && (
             <svg className={`ring ${low ? "low" : ""}`} viewBox="0 0 56 56" role="progressbar" aria-valuenow={secs ?? 0} aria-label="Time to act">
@@ -237,11 +255,12 @@ function SeatBlock(props: {
           </div>
           {s.isButton && <span className="dealer" title="Dealer">D</span>}
           {!s.connected && <span className="offdot" role="img" aria-label="Offline" title="Offline" />}
-          {secs !== null && <div className={`secs ${low ? "low" : ""}`}>{secs}s</div>}
+          {secs !== null && <div className={`secs ${low ? "low" : ""} ${props.frozen ? "frozen" : ""}`}>{props.frozen ? "⏸ " : ""}{secsText}</div>}
         </div>
         <div className={`plate ${isMe ? "clickable" : ""}`} onClick={isMe ? props.onMe : undefined} title={isMe ? "Change avatar" : undefined}>
           <div className="name">{s.name}{isMe ? " (you)" : ""}</div>
           <div className="stack">{fmt(s.stack)}</div>
+        </div>
         </div>
         <div className="tags">
           {declBadge && <span className="tag decl">{declBadge}</span>}
@@ -258,18 +277,15 @@ function SeatBlock(props: {
         </div>
         {wins ? (
           <div className="seat-note win">
-            +{fmt(winTotal)}{wins.some((w) => w.half !== "whole") ? ` ${wins.map((w) => (w.half === "high" ? "High" : w.half === "low" ? "Low" : "")).filter(Boolean).join("+")}` : ""}{wins[0]?.handName ? ` · ${wins[0].handName}` : ""}
+            +{fmt(winTotal)}{wins.some((w) => w.half !== "whole") ? ` ${wins.map((w) => (w.half === "high" ? "High" : w.half === "low" ? "Low" : "")).filter(Boolean).join("+")}` : ""}
           </div>
         ) : s.lastAction && !(s.folded && /^fold/i.test(s.lastAction)) ? (
           <div className={`seat-note ${hostCtl ? "shift" : ""}`}>{s.lastAction}</div>
         ) : null}
         {wins && <span key={winTotal} className="floatwin" aria-hidden="true">+{fmt(winTotal)}</span>}
-        {props.canExtend && (
-          <button type="button" className="extendbtn" onClick={() => props.send("extendTime")}>+{props.extensionSec}s</button>
-        )}
         {hostCtl && (
           <div className="hostctl">
-            {props.deadline !== null && <button onClick={() => props.send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}
+            {props.leftMs !== null && <button onClick={() => props.send("host:addTime", { playerId: s.playerId, seconds: 30 })}>+30s</button>}
             <button className="danger" onClick={() => props.send("host:forceTimeout", { playerId: s.playerId })}>Time out</button>
           </div>
         )}
@@ -281,6 +297,27 @@ function SeatBlock(props: {
         </div>
       )}
     </>
+  );
+}
+
+/** Who won, how much, and with which hand: shown in the middle of the table when a hand ends. */
+function WinBanner({ view, winners }: { view: TableView; winners: WinnerView[] }) {
+  const groups = new Map<string, { id: string; amount: number; half: WinnerView["half"]; hand: string | null }>();
+  for (const w of winners) {
+    const key = `${w.playerId}|${w.half}|${w.handName ?? ""}`;
+    const g = groups.get(key) ?? { id: w.playerId, amount: 0, half: w.half, hand: w.handName };
+    g.amount += w.amount;
+    groups.set(key, g);
+  }
+  return (
+    <div className="winbanner" role="status">
+      {[...groups.values()].map((g, i) => (
+        <div key={i}>
+          <b>{nameOf(view, g.id)}</b> wins {fmt(g.amount)}{g.half === "high" ? " (High)" : g.half === "low" ? " (Low)" : ""}
+          {g.hand ? <> with <b>{g.hand}</b></> : null}
+        </div>
+      ))}
+    </div>
   );
 }
 
