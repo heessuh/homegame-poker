@@ -1,5 +1,5 @@
-import { VARIANTS } from "@homegame/engine";
-import type { Card, Phase, TableConfig, TableView } from "@homegame/engine";
+import { VARIANTS, bestHigh, bestLow8, bestLowAny, holeRule, splitOf } from "@homegame/engine";
+import type { Card, Phase, TableConfig, TableView, WinnerView } from "@homegame/engine";
 
 // ---- Money ----
 // Cash games store chips as cents. When config.money is "cents" (and it is not a tournament) amounts show as dollars.
@@ -139,4 +139,59 @@ export const STUD_STREETS: Partial<Record<Phase, string>> = {
 /** "Pot-Limit Omaha Hi/Lo (8 or better)" -> "Pot-Limit Omaha Hi/Lo". */
 export function shortGame(name: string): string {
   return name.replace(/\s*\(.*?\)/g, "").trim();
+}
+
+// ---- Showdown display ----
+/** One shown hand at showdown: its rank label(s) and, for a winner, the cards that made the winning hand. */
+export interface ShownHand { labels: string[]; used: Set<Card> | null }
+export interface ShowdownInfo { board: Set<Card>; seats: Map<string, ShownHand> }
+
+/**
+ * What the table shows when a board game reaches showdown: a rank under every shown hand, and the cards that made
+ * each winning hand (raised; the rest fade). Display only: the server alone decides who wins. The winner's cards
+ * are matched by the hand name the server sent, so the cards shown are always the ones that hand was named for.
+ * Null when there is nothing to show (no showdown, a fold win, stud or points games).
+ */
+export function showdownInfo(view: TableView, winners: WinnerView[]): ShowdownInfo | null {
+  const hand = view.hand;
+  const v = VARIANTS[view.config.variant];
+  if (!hand || !v || v.kind === "stud" || v.scoring === "points") return null;
+  if (!winners.some((w) => w.handName)) return null;
+  const board = hand.board;
+  if (board.length < 3) return null;
+  const rule = holeRule(v);
+  const mode = splitOf(v);
+  const lowFn = v.lowRule === "any" ? bestLowAny : bestLow8;
+  const seats = new Map<string, ShownHand>();
+  const usedBoard = new Set<Card>();
+  for (const s of view.seats) {
+    if (!s || !s.inHand || s.folded || !s.holeCards || s.holeCards.length === 0) continue;
+    let high: { name: string; cards: Card[] } | null = null;
+    let low: { name: string; cards: Card[] } | null = null;
+    try {
+      high = bestHigh(s.holeCards, board, rule);
+      if (mode !== "high") low = lowFn(s.holeCards, board, rule);
+    } catch {
+      continue; // not enough cards for a five-card hand
+    }
+    const mine = winners.filter((w) => w.playerId === s.playerId && w.handName);
+    let used: Set<Card> | null = null;
+    for (const w of mine) {
+      const name = w.handName!.toLowerCase();
+      const pick = low && name === low.name.toLowerCase() ? low : high && name === high.name.toLowerCase() ? high : null;
+      if (!pick) continue;
+      used ??= new Set<Card>();
+      for (const c of pick.cards) {
+        used.add(c);
+        if (board.includes(c)) usedBoard.add(c);
+      }
+    }
+    const labels: string[] = [];
+    if (mode !== "low" && high) labels.push(high.name);
+    if (mode !== "high") labels.push(low ? `${mode === "hilo" ? "Low " : ""}${low.name}` : mode === "hilo" ? "No low" : "No qualifying low");
+    seats.set(s.playerId, { labels, used });
+  }
+  // If no winning hand could be matched, fade nothing rather than fade the whole board.
+  if (![...seats.values()].some((x) => x.used)) for (const c of board) usedBoard.add(c);
+  return { board: usedBoard, seats };
 }

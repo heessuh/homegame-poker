@@ -1,9 +1,10 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { VARIANTS, tkoPoints } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack } from "./CardView";
 import { CardFace } from "./CardView";
-import { STUD_STREETS, fmt, gameLabel, isStud, rabbitCards, totalPot } from "./util";
+import { STUD_STREETS, fmt, gameLabel, isStud, rabbitCards, showdownInfo, totalPot } from "./util";
+import type { ShownHand } from "./util";
 import { useNow } from "./ui";
 import { ChipStack } from "./Chips";
 import { useTableMotion } from "./motion";
@@ -15,6 +16,20 @@ interface Props {
   onSit: (seat: number) => void;
   onMe: () => void;
   send: Send;
+}
+
+/** True on screens 700px and wider, where seats sit further out so the bigger board has room. */
+function useWide(): boolean {
+  const q = "(min-width: 700px)";
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia?.(q);
+    if (!m) return;
+    const on = () => setWide(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return wide;
 }
 
 export function Table({ view, onSit, onMe, send }: Props) {
@@ -55,6 +70,8 @@ export function Table({ view, onSit, onMe, send }: Props) {
   const winKey = shownWinners.length
     ? `${hand?.handNumber ?? pa?.handNumber}:${shownWinners.map((w) => `${w.playerId}=${w.amount}`).join(",")}`
     : "";
+  // Showdown: a rank under every shown hand; the cards that made each winning hand rise and the rest fade.
+  const sd = showdownInfo(view, shownWinners);
   const pot = totalPot(view);
   const pots = hand?.pots ?? [];
 
@@ -70,13 +87,16 @@ export function Table({ view, onSit, onMe, send }: Props) {
     }
   }
 
+  const wide = useWide();
+  const seatRx = wide ? 42 : 39; // seat ring, % of the table's width
+  const betF = wide ? 0.7 : 0.62; // bets sit this far out toward each seat
   const pos = (seat: number, rx: number, ry: number) => {
     const rel = (seat - anchor + n) % n;
     const theta = Math.PI / 2 + (rel * 2 * Math.PI) / n;
     return { x: 50 + rx * Math.cos(theta), y: 50 + ry * Math.sin(theta) };
   };
 
-  useTableMotion(wrapRef, view, (seat) => pos(seat, 39 * 0.62, 37 * 0.62), winKey, winAmts);
+  useTableMotion(wrapRef, view, (seat) => pos(seat, seatRx * betF, 37 * (wide ? 0.72 : 0.62)), winKey, winAmts);
 
   return (
     <div className="table-wrap" ref={wrapRef}>
@@ -102,7 +122,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
               <div className="board">
                 {Array.from({ length: 5 }, (_, i) => {
                   const c = hand.board[i];
-                  if (c) return <CardFace key={i} card={c} size="md" />;
+                  if (c) return <CardFace key={i} card={c} size="md" className={sd ? (sd.board.has(c) ? "used" : "unused") : ""} />;
                   const rc = rabbit[i - hand.board.length];
                   return rc ? <CardFace key={i} card={rc} size="md" className="rabbit" /> : <div key={i} className="card slot md" />;
                 })}
@@ -130,7 +150,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
       </div>
 
       {view.seats.map((s, i) => {
-        const p = pos(i, 39, 37);
+        const p = pos(i, seatRx, 37);
         const style = { left: `${p.x}%`, top: `${p.y}%` };
         if (!s) {
           return (
@@ -144,7 +164,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
           );
         }
         const isMe = s.playerId === you.playerId;
-        const bp = pos(i, 39 * 0.62, 37 * (isMe ? 0.5 : 0.62));
+        const bp = pos(i, seatRx * betF, 37 * (isMe ? 0.5 : wide ? 0.72 : 0.62));
         return (
           <SeatBlock
             key={i}
@@ -165,6 +185,7 @@ export function Table({ view, onSit, onMe, send }: Props) {
             board={board}
             wins={winnersByPlayer.get(s.playerId)}
             showdownDim={shownWinners.length > 0 && !winnersByPlayer.has(s.playerId)}
+            shown={sd?.seats.get(s.playerId)}
             betPos={bp}
           />
         );
@@ -186,7 +207,7 @@ function hue(name: string): number {
 function SeatBlock(props: {
   idx: number; bb: number;
   s: SeatView; isMe: boolean; style: React.CSSProperties; toAct: boolean; leftMs: number | null; frozen: boolean;
-  timeoutSec: number; stud: boolean; points: boolean; board: string[]; wins?: WinnerView[]; showdownDim: boolean;
+  timeoutSec: number; stud: boolean; points: boolean; board: string[]; wins?: WinnerView[]; showdownDim: boolean; shown?: ShownHand;
   betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void;
 }) {
   const { s, isMe, toAct, wins } = props;
@@ -206,9 +227,17 @@ function SeatBlock(props: {
 
   const hasHole = !!s.holeCards && s.holeCards.length > 0;
   const live = s.inHand && !s.folded;
+  // Board games fan the hole cards slightly, like a hand held at the table.
+  const holeN = hasHole ? s.holeCards!.length : live ? s.holeCount : 0;
+  const fan = (i: number): React.CSSProperties | undefined => {
+    if (props.stud || holeN < 2) return undefined;
+    const step = holeN === 2 ? 7 : holeN === 3 ? 6 : holeN === 4 ? 5 : 4;
+    return { ["--rot" as string]: `${(i - (holeN - 1) / 2) * step}deg` };
+  };
+  const used = props.shown?.used ?? null;
   const holeNodes: React.ReactNode[] = hasHole
-    ? s.holeCards!.map((c, i) => <CardFace key={"h" + i + c} card={c} size={size} className={[props.stud && isMe ? "mark-down" : "", props.points && props.board.some((b) => b[0] === c[0]) ? "cancelled" : ""].filter(Boolean).join(" ")} />)
-    : live ? Array.from({ length: s.holeCount }, (_, i) => <CardBack key={"b" + i} size={size} />) : [];
+    ? s.holeCards!.map((c, i) => <CardFace key={"h" + i + c} card={c} size={size} style={fan(i)} className={[props.stud && isMe ? "mark-down" : "", props.points && props.board.some((b) => b[0] === c[0]) ? "cancelled" : "", used ? (used.has(c) ? "used" : "unused") : ""].filter(Boolean).join(" ")} />)
+    : live ? Array.from({ length: s.holeCount }, (_, i) => <CardBack key={"b" + i} size={size} style={fan(i)} />) : [];
   const upNodes = props.stud && !s.folded
     ? s.upCards.map((c, i) => <CardFace key={"u" + i + c} card={c} size={size} className={isMe ? "mark-up" : "up"} />)
     : [];
@@ -221,7 +250,7 @@ function SeatBlock(props: {
       </div>
     );
   } else if (holeNodes.length > 0) {
-    cards = <div className="cardrow hole" data-n={holeNodes.length}>{holeNodes}</div>;
+    cards = <div className="cardrow hole fan" data-n={holeNodes.length}>{holeNodes}</div>;
   }
   const declBadge = s.declared ? s.declared.toUpperCase() : null;
   const av = s.avatar;
@@ -237,11 +266,15 @@ function SeatBlock(props: {
     <>
       <div className={cls} style={props.style} data-seat={props.idx}>
         {cards}
-        {ranks.length > 0 && (
+        {ranks.length > 0 ? (
           <div className="ranks">
             {ranks.map((w) => <span key={w.half + w.handName} className={`rank ${w.half}`}>{w.half === "low" ? "Low: " : w.half === "high" ? "High: " : ""}{w.handName}</span>)}
           </div>
-        )}
+        ) : props.shown && props.shown.labels.length > 0 ? (
+          <div className="ranks">
+            {props.shown.labels.map((l) => <span key={l} className="rank lose">{l}</span>)}
+          </div>
+        ) : null}
         <div className="pod">
         <div className="avwrap">
           {frac !== null && (

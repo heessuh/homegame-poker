@@ -4,12 +4,12 @@ const SUIT_SYMBOL: Record<string, string> = { s: "♠", h: "♥", d: "♦", c: "
 
 export type CardSize = "sm" | "md" | "lg";
 
-export function CardFace({ card, size = "md", className = "" }: { card: Card; size?: CardSize; className?: string }) {
+export function CardFace({ card, size = "md", className = "", style }: { card: Card; size?: CardSize; className?: string; style?: React.CSSProperties }) {
   const rank = card[0] === "T" ? "10" : card[0];
   const suit = card[1] ?? "s";
   const sym = SUIT_SYMBOL[suit];
   return (
-    <div className={`card face suit-${suit} ${size} ${className}`} aria-label={`${rank} of ${suit}`}>
+    <div className={`card face suit-${suit} ${size} ${className}`} style={style} aria-label={`${rank} of ${suit}`}>
       <span className="cn tl"><b>{rank}</b><i>{sym}</i></span>
       <span className="pip" aria-hidden="true">{sym}</span>
       <span className="cn br" aria-hidden="true"><b>{rank}</b><i>{sym}</i></span>
@@ -17,8 +17,8 @@ export function CardFace({ card, size = "md", className = "" }: { card: Card; si
   );
 }
 
-export function CardBack({ size = "sm", className = "" }: { size?: CardSize; className?: string }) {
-  return <div className={`card back ${size} ${className}`} aria-hidden="true" />;
+export function CardBack({ size = "sm", className = "", style }: { size?: CardSize; className?: string; style?: React.CSSProperties }) {
+  return <div className={`card back ${size} ${className}`} style={style} aria-hidden="true" />;
 }
 
 export function CardRow({ cards, size, className = "" }: { cards: Card[]; size: CardSize; className?: string }) {

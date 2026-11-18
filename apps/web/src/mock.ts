@@ -100,7 +100,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
       handNumber: 31, phase: "showdown", board: cardsOf("Qs 9d 4c Kh 2s"),
       pots: [{ amount: 2460, eligiblePlayerIds: ["p1", "p2", "p4"] }],
       stage: null, toActSeat: null, actionDeadline: null, legal: null, deckHash,
-      winners: [{ playerId: "p4", amount: 2460, potIndex: 0, half: "whole", handName: "Three of a kind, Nines" }],
+      winners: [{ playerId: "p4", amount: 2460, potIndex: 0, half: "whole", handName: "Three of a Kind, Nines" }],
     },
     lastHand: {
       handNumber: 30, variant: "nlhe", deckHash, reveal: { deck, salt }, board: cardsOf("Td 5s 5h 8c Jd"),
@@ -213,7 +213,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
   const awardViewer: TableView = {
     ...award,
     hostPlayerId: "p1", you: { playerId: "p2", seat: 2, isHost: false, blindDue: false, postBlind: false },
-    hand: { ...award.hand!, winners: [{ playerId: "p4", amount: 2460, potIndex: 0, half: "whole", handName: "Three of a kind, Nines" }] },
+    hand: { ...award.hand!, winners: [{ playerId: "p4", amount: 2460, potIndex: 0, half: "whole", handName: "Three of a Kind, Nines" }] },
   };
 
   // Long session history.
@@ -284,7 +284,7 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     hand: m5Hand({
       phase: "showdown", stage: null, toActSeat: null, actionDeadline: null, pots: [{ amount: 1480, eligiblePlayerIds: ["p0", "p1", "p2", "p4", "p6"] }],
       winners: [
-        { playerId: "p1", amount: 740, potIndex: 0, half: "high", handName: "Two pair, Aces and Kings" },
+        { playerId: "p1", amount: 740, potIndex: 0, half: "high", handName: "Two Pair, Aces and Kings" },
         { playerId: "p0", amount: 740, potIndex: 0, half: "low", handName: "Seven-low" },
       ],
     }),

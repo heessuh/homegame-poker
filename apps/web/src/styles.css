@@ -733,3 +733,50 @@ html, body { font-size: 16px; }
   .table-wrap .seat.me .hostctl { top: auto; bottom: 6px; left: 100%; margin: 0 0 0 10px; flex-direction: column; gap: 5px; }
 }
 @media (min-width: 700px) { .table-wrap .seat.me .pod { margin-top: 5px; } }
+
+/* ---- Table proportions and showdown ----
+   Big-index cards (a large rank and a large suit) so every card reads from across the table. The board is the
+   largest thing on the felt; hole cards are a little smaller and fan over the seat box. At showdown the cards
+   that made each winning hand rise and the rest fade; every shown hand gets its rank underneath. */
+.table-wrap .card { height: calc(var(--cw) * 1.26); border-radius: calc(var(--cw) * .1); transition: transform .35s var(--ease), opacity .35s, filter .35s; }
+.table-wrap .card.face .cn.br { display: none; }
+.table-wrap .card.face .cn.tl { top: calc(var(--cw) * .04); left: calc(var(--cw) * .07); }
+.table-wrap .card.face .cn b { font-size: calc(var(--cw) * .54); letter-spacing: -.08em; }
+.table-wrap .card.face .cn i { font-size: calc(var(--cw) * .38); }
+.table-wrap .board .card.face .cn i { display: none; }
+.table-wrap .card.face .pip { left: 60%; top: 68%; font-size: calc(var(--cw) * .66); }
+.table-wrap .cardrow.hole > .card:not(:last-child) .pip { display: none; }
+
+.cardrow.hole.fan > .card { transform: rotate(var(--rot, 0deg)); transform-origin: 50% 150%; }
+.cardrow.hole.fan > .card.used { transform: rotate(var(--rot, 0deg)) translateY(-16%); }
+.card.unused { opacity: .28; filter: saturate(.35); }
+.card.face.used { box-shadow: 0 0 0 1px rgba(0, 0, 0, .25), 0 0 0 2px var(--gold2), 0 0 18px rgba(244, 215, 155, .55), 0 4px 8px rgba(0, 0, 0, .5); }
+.board .card.used { transform: translateY(-7%); }
+.rank.lose { background: rgba(20, 12, 8, .9); color: var(--cream); box-shadow: 0 2px 6px rgba(0, 0, 0, .6), inset 0 0 0 1px rgba(244, 235, 220, .28); }
+.seat.loser { opacity: .85; }
+
+@media (max-width: 699px) {
+  .center { width: 86%; }
+  .board { gap: 3px; }
+  .card.md { --cw: clamp(33px, 9.4vw, 48px); }
+  .card.sm { --cw: 32px; }
+  .cardrow.hole > .card.sm + .card.sm { margin-left: -15px; }
+  .cardrow.hole[data-n="4"] > .card.sm + .card.sm, .cardrow.hole[data-n="5"] > .card.sm + .card.sm { margin-left: -21px; }
+}
+@media (min-width: 700px) {
+  /* Card sizes follow the table's height and, through cqw, its width, so a wide board never runs into the seats. */
+  .table-wrap {
+    container-type: inline-size;
+    --cmd: clamp(52px, min(calc(var(--table-h) * .175), 8.8cqw), 126px);
+    --csm: clamp(42px, min(calc(var(--table-h) * .105), 6.4cqw), 78px);
+    --clg: clamp(52px, min(calc(var(--table-h) * .125), 7.6cqw), 90px);
+    --sw: clamp(148px, calc(var(--table-h) * .3), 226px);
+  }
+  .center { width: 74%; }
+  .board { gap: clamp(6px, calc(var(--table-h) * .014), 12px); }
+  .table-wrap .cardrow.hole > .card.sm + .card.sm { margin-left: calc(var(--csm) * -.5); }
+  .table-wrap .cardrow.hole[data-n="4"] > .card.sm + .card.sm, .table-wrap .cardrow.hole[data-n="5"] > .card.sm + .card.sm, .table-wrap .cardrow.hole[data-n="6"] > .card.sm + .card.sm { margin-left: calc(var(--csm) * -.68); }
+  .table-wrap .cardrow.hole > .card.lg + .card.lg { margin-left: calc(var(--clg) * -.48); }
+  .table-wrap .cardrow.hole[data-n="4"] > .card.lg + .card.lg, .table-wrap .cardrow.hole[data-n="5"] > .card.lg + .card.lg { margin-left: calc(var(--clg) * -.64); }
+  .table-wrap .cardrow.hole.fan { margin-bottom: calc(var(--csm) * -.3); }
+}
