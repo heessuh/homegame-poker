@@ -1,7 +1,17 @@
 name: CI
+# Runs on pull requests only. A push to main is tested by the Deploy workflow (same build and test:all),
+# so running CI there too would repeat the same work. Docs-only changes skip CI.
 on:
-  push: { branches: [main] }
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+
+# A newer push to the same pull request cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -19,6 +29,7 @@ jobs:
           name: test-reports
           path: test-reports/
           if-no-files-found: ignore
+          retention-days: 7
   # The web bundle built inside the Docker image (what Fly runs) must be byte-identical to a plain `npm ci && npm run build`.
   reproducible-build:
     runs-on: ubuntu-latest

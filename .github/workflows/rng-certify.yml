@@ -2,15 +2,11 @@ name: RNG certify
 
 # Runs independent randomness test suites (dieharder, PractRand, NIST SP 800-22) and our own permutation
 # checks against the exact production mochapoker-v1 stream. See docs/RNG_TESTING.md.
+#
+# Manual only: one full run uses about 450 runner minutes (13 jobs in parallel), so it no longer runs on a
+# schedule or on push. Run it by hand after any change to packages/engine/src/fair*.ts or shuffle.ts.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 1 * *" # 1st of every month, 06:00 UTC
-  push:
-    branches: [main]
-    paths:
-      - "packages/engine/src/fair*.ts"
-      - "packages/engine/src/shuffle.ts"
 
 permissions:
   contents: read
