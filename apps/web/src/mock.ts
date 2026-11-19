@@ -3,7 +3,7 @@ import type { Card, Declaration, HandView, SeatView, TableConfig, TableView, Var
 import { cardsOf, sha256Hex } from "./util";
 
 export type FixtureId = "plo5-turn" | "nlhe-showdown" | "waiting-host" | "tournament-plo4" | "award-pending" | "award-viewer" | "history-long"
-  | "murder5-bet" | "murder5-exchange" | "murder5-declare" | "murder5-showdown";
+  | "murder5-bet" | "murder5-exchange" | "murder5-declare" | "murder5-showdown" | "nlhe-flop-waiting";
 export const FIXTURE_LABELS: Record<FixtureId, string> = {
   "plo5-turn": "PLO5 turn, your action",
   "nlhe-showdown": "Hold'em showdown",
@@ -16,6 +16,7 @@ export const FIXTURE_LABELS: Record<FixtureId, string> = {
   "murder5-exchange": "5-Murder Exchange 1, your swap",
   "murder5-declare": "5-Murder Declare",
   "murder5-showdown": "5-Murder showdown (hi/lo split)",
+  "nlhe-flop-waiting": "Hold'em flop, waiting to act (pre-actions)",
 };
 
 function seat(i: number, name: string, stack: number, extra: Partial<SeatView> = {}): SeatView {
@@ -291,7 +292,26 @@ export async function makeFixtures(): Promise<Record<FixtureId, TableView>> {
     log: ["Declare: choose High, Low or Both", "Showdown", "Marta wins $7.40 (high) with Two pair, Aces and Kings", "You win $7.40 (low) with Seven-low", "Dev declared both and won neither side"],
   };
 
+  // Hold'em on the flop: Dev bet and Alice is thinking, so your pre-action buttons show (Call $1.20).
+  const flopWait: TableView = {
+    ...nlhe,
+    seats: [
+      null,
+      seat(1, "Alice", 2120, { avatar: "♠️", holeCount: 2, isButton: true }),
+      seat(2, "You", 980, { avatar: "12", holeCards: cardsOf("Kc Qc") }),
+      seat(3, "Bo", 0, { folded: true, inHand: false, lastAction: "Fold" }),
+      seat(4, "Dev", 1380, { avatar: "🦊", holeCount: 2, bet: 120, lastAction: "Bet 120" }),
+      null,
+    ],
+    hand: {
+      handNumber: 32, phase: "flop", board: cardsOf("Qs 9d 4c"),
+      pots: [{ amount: 120, eligiblePlayerIds: ["p1", "p2", "p4"] }],
+      stage: "bet", toActSeat: 1, actionDeadline: now + 25000, legal: null, deckHash, winners: null,
+    },
+  };
+
   return {
+    "nlhe-flop-waiting": flopWait,
     "murder5-bet": m5Bet, "murder5-exchange": m5Ex, "murder5-declare": m5Decl, "murder5-showdown": m5Show,
     "plo5-turn": plo, "nlhe-showdown": nlhe, "waiting-host": waiting, "tournament-plo4": tourney, "award-pending": award, "award-viewer": awardViewer, "history-long": history,
   };

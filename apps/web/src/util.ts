@@ -195,3 +195,55 @@ export function showdownInfo(view: TableView, winners: WinnerView[]): ShowdownIn
   if (![...seats.values()].some((x) => x.used)) for (const c of board) usedBoard.add(c);
   return { board: usedBoard, seats };
 }
+
+// ---- Your hand, in words ----
+/**
+ * Your own best hand as the board comes, e.g. "Two Pair, Kings and Nines" (hi/lo games add the low, e.g.
+ * "Low 8-6-4-2-A"). Board games only, from the flop on; null for stud, points games or too few cards.
+ * Display only: it uses the same evaluator the server uses at showdown.
+ */
+export function liveHandLabel(variant: TableConfig["variant"], hole: Card[] | null, board: Card[]): string | null {
+  const v = VARIANTS[variant];
+  if (!v || v.kind === "stud" || v.scoring === "points" || !hole || hole.length === 0 || board.length < 3) return null;
+  const rule = holeRule(v);
+  const mode = splitOf(v);
+  const lowFn = v.lowRule === "any" ? bestLowAny : bestLow8;
+  try {
+    const parts: string[] = [];
+    if (mode !== "low") parts.push(bestHigh(hole, board, rule).name);
+    if (mode !== "high") {
+      const low = lowFn(hole, board, rule);
+      if (low) parts.push(`Low ${low.name}`);
+      else if (mode === "low") parts.push("No low yet");
+    }
+    return parts.length ? parts.join(" · ") : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---- Settle up ----
+export interface Payment { from: string; to: string; amount: number }
+
+/**
+ * Who pays whom at the end of the night, from each player's net (stack + cash-outs - buy-ins).
+ * Biggest loser pays biggest winner first, which keeps the number of payments small (at most players - 1).
+ * `off` is what does not balance (chips still in a pot, for example); 0 when everything adds up.
+ */
+export function settleUp(nets: { name: string; net: number }[]): { payments: Payment[]; off: number } {
+  const off = nets.reduce((a, e) => a + e.net, 0);
+  const win = nets.filter((e) => e.net > 0).map((e) => ({ name: e.name, left: e.net })).sort((a, b) => b.left - a.left);
+  const lose = nets.filter((e) => e.net < 0).map((e) => ({ name: e.name, left: -e.net })).sort((a, b) => b.left - a.left);
+  const payments: Payment[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < lose.length && j < win.length) {
+    const amt = Math.min(lose[i]!.left, win[j]!.left);
+    if (amt > 0) payments.push({ from: lose[i]!.name, to: win[j]!.name, amount: amt });
+    lose[i]!.left -= amt;
+    win[j]!.left -= amt;
+    if (lose[i]!.left === 0) i++;
+    if (win[j]!.left === 0) j++;
+  }
+  return { payments, off };
+}

@@ -3,7 +3,7 @@ import { DEFAULT_HOUSE_LIMIT, DEFAULT_STUD, VARIANTS, VERIFIER_URL } from "@home
 import type { HouseLimit, SeatView, StudStakes, TableConfig, TableView, VariantId } from "@homegame/engine";
 import { CardRow } from "./CardView";
 import type { Send } from "./App";
-import { fmt, fmtWith, gameLabel, isStud, sha256Hex, shortGame } from "./util";
+import { fmt, fmtWith, gameLabel, isStud, settleUp, sha256Hex, shortGame } from "./util";
 import type { Card, HandRecord } from "@homegame/engine";
 import { MoneyInput, Who, avatarOf } from "./ui";
 import { fairnessExport, verifyFairness, type FairCheck } from "./fairness";
@@ -104,6 +104,7 @@ function Log({ lines, send, tableId }: { lines: string[]; send: Send; tableId: s
 function Ledger({ view }: { view: TableView }) {
   if (view.ledger.length === 0) return <p className="muted">No buy-ins yet.</p>;
   return (
+    <>
     <table className="ledger">
       <thead><tr><th>Player</th><th>In</th><th>Out</th><th>Stack</th><th>Net</th></tr></thead>
       <tbody>
@@ -115,6 +116,35 @@ function Ledger({ view }: { view: TableView }) {
         ))}
       </tbody>
     </table>
+    {view.config.mode === "cash" && <SettleUp view={view} />}
+    </>
+  );
+}
+
+/** End of the night: who pays whom so everyone ends square, with a button to copy it for the group chat. */
+function SettleUp({ view }: { view: TableView }) {
+  const [copied, setCopied] = useState(false);
+  const { payments, off } = settleUp(view.ledger);
+  const midHand = !!view.hand && !view.hand.winners;
+  const lines = payments.map((p) => `${p.from} pays ${p.to} ${fmt(p.amount)}`);
+  const text = [`Mocha Poker settle-up (table ${view.tableId})`, ...(lines.length ? lines : ["Everyone is even."])].join("\n");
+  const copy = () => {
+    void navigator.clipboard?.writeText(text).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000); }).catch(() => undefined);
+  };
+  return (
+    <div className="settle">
+      <h4>Settle up</h4>
+      {lines.length === 0 ? <p className="muted">Everyone is even.</p> : (
+        <ul className="settle-list">
+          {payments.map((p, i) => (
+            <li key={i}><b>{p.from}</b> pays <b>{p.to}</b> <span className="amt-pay">{fmt(p.amount)}</span></li>
+          ))}
+        </ul>
+      )}
+      {midHand && <p className="muted small">A hand is in play, so these numbers will change. Settle up between hands.</p>}
+      {!midHand && off !== 0 && <p className="note">The totals are {fmt(Math.abs(off))} {off > 0 ? "over" : "short"}; check the ledger before paying.</p>}
+      <button type="button" className="btn small" onClick={copy}>{copied ? "Copied" : "Copy settle-up"}</button>
+    </div>
   );
 }
 
