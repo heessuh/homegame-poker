@@ -42,7 +42,7 @@ It then simulates hands: a brand-new random 32-byte server seed, a table id, a h
 ## How to run it
 
 1. On GitHub open **Actions → RNG certify → Run workflow** (branch `main`).
-2. It also runs by itself on the 1st of each month (06:00 UTC) and whenever `packages/engine/src/fair*.ts` or `shuffle.ts` changes on `main`.
+2. It runs only when started by hand. A full run uses about 450 runner minutes, so it has no schedule and does not start on push. Run it after any change to `packages/engine/src/fair*.ts` or `shuffle.ts` on `main`.
 3. When it finishes, open each job and read the summary at the top of the run page. Full logs are attached as artifacts (`dieharder-logs`, `practrand-logs-stream`, `practrand-logs-decks`, `nist-logs-stream`, `nist-logs-decks`, `permutation-logs`).
 
 Expected time: permutation tests a few minutes, NIST about 10 to 20 minutes, PractRand (16 GB) 30 to 60 minutes, dieharder about 75 minutes (8 jobs in parallel; the full `-a` would take about 8 hours in one job). The big runs are limited by how fast Node can compute HMACs (roughly 10 MB/s on a 4-core runner), not by the test tools.
