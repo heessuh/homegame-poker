@@ -3,7 +3,7 @@ import { VARIANTS, tkoPoints } from "@homegame/engine";
 import type { SeatView, TableView, WinnerView } from "@homegame/engine";
 import { CardBack } from "./CardView";
 import { CardFace } from "./CardView";
-import { STUD_STREETS, fmt, gameLabel, isStud, rabbitCards, showdownInfo, totalPot } from "./util";
+import { STUD_STREETS, fmt, gameLabel, isStud, liveHandLabel, rabbitCards, showdownInfo, totalPot } from "./util";
 import type { ShownHand } from "./util";
 import { useNow } from "./ui";
 import { ChipStack } from "./Chips";
@@ -74,6 +74,14 @@ export function Table({ view, onSit, onMe, send }: Props) {
   const sd = showdownInfo(view, shownWinners);
   const pot = totalPot(view);
   const pots = hand?.pots ?? [];
+  // Each seat's win or loss for the session (cash games). Taken from the ledger between hands, so it doesn't
+  // jump around while chips sit in the pot.
+  const nets = useRef(new Map<string, number>());
+  if ((!hand || hand.winners) && !pa) nets.current = new Map(view.ledger.map((e) => [e.playerId, e.net]));
+  const netOf = (id: string): number | null => {
+    if (config.mode !== "cash") return null;
+    return nets.current.get(id) ?? view.ledger.find((e) => e.playerId === id)?.net ?? null;
+  };
 
   let studStatus: string | null = null;
   if (stud && hand) {
@@ -188,6 +196,8 @@ export function Table({ view, onSit, onMe, send }: Props) {
             wins={winnersByPlayer.get(s.playerId)}
             showdownDim={shownWinners.length > 0 && !winnersByPlayer.has(s.playerId)}
             shown={sd?.seats.get(s.playerId)}
+            myHand={isMe && s.inHand && !s.folded ? liveHandLabel(config.variant, s.holeCards, board) : null}
+            net={netOf(s.playerId)}
             betPos={bp}
           />
         );
@@ -210,6 +220,7 @@ function SeatBlock(props: {
   idx: number; bb: number;
   s: SeatView; isMe: boolean; style: React.CSSProperties; toAct: boolean; leftMs: number | null; frozen: boolean;
   timeoutSec: number; stud: boolean; points: boolean; board: string[]; wins?: WinnerView[]; showdownDim: boolean; shown?: ShownHand;
+  myHand: string | null; net: number | null;
   betPos: { x: number; y: number }; isHost: boolean; send: Send; onMe: () => void;
 }) {
   const { s, isMe, toAct, wins } = props;
@@ -276,6 +287,10 @@ function SeatBlock(props: {
           <div className="ranks">
             {props.shown.labels.map((l) => <span key={l} className="rank lose">{l}</span>)}
           </div>
+        ) : props.myHand ? (
+          <div className="ranks">
+            <span className="rank mine" aria-label={`Your hand: ${props.myHand}`}>{props.myHand}</span>
+          </div>
         ) : null}
         <div className="pod">
         <div className="avwrap">
@@ -295,6 +310,11 @@ function SeatBlock(props: {
         <div className={`plate ${isMe ? "clickable" : ""}`} onClick={isMe ? props.onMe : undefined} title={isMe ? "Change avatar" : undefined}>
           <div className="name">{s.name}{isMe ? " (you)" : ""}</div>
           <div className="stack">{fmt(s.stack)}</div>
+          {props.net !== null && props.net !== 0 && (
+            <div className={`net ${props.net > 0 ? "up" : "down"}`} title="Win or loss this session">
+              {props.net > 0 ? "+" : "−"}{fmt(Math.abs(props.net))}
+            </div>
+          )}
         </div>
         </div>
         <div className="tags">

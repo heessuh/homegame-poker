@@ -7,6 +7,8 @@ import type { VariantId } from "@homegame/engine";
 import type { ClientToServerEvents, ServerToClientEvents, TableView } from "@homegame/engine";
 import { Table } from "./Table";
 import { ActionBar } from "./ActionBar";
+import { PreActions } from "./PreActions";
+import { useSoundOn, useTableSounds } from "./sound";
 import { SidePanel } from "./SidePanel";
 import type { Tab } from "./SidePanel";
 import { FIXTURE_LABELS, makeFixtures } from "./mock";
@@ -250,9 +252,21 @@ function NamePrompt({ current, onConfirm, onClose }: { current: string; onConfir
   );
 }
 
+/** Mute toggle, remembered on this device. Phones show it in the game row so the header keeps room for the name. */
+function SoundToggle({ on, set, where }: { on: boolean; set: (on: boolean) => void; where: "top" | "row" }) {
+  return (
+    <button type="button" className={`btn small soundbtn ${where} ${on ? "" : "muted-snd"}`} aria-pressed={on} onClick={() => set(!on)}
+      title={on ? "Sound is on: tap to mute (remembered on this device)" : "Sound is off: tap to turn it on"} aria-label={on ? "Sound on" : "Sound off"}>
+      <span aria-hidden="true">{on ? "🔊" : "🔇"}</span><span className="snd-lbl"> Sound</span>
+    </button>
+  );
+}
+
 function Room({ view, send, connected, avatar, onAvatar, onName }: { view: TableView; send: Send; connected: boolean; avatar: string | null; onAvatar: (a: string | null) => void; onName?: (n: string) => void }) {
   setMoneyMode(view.config);
   const dealerWatch = useDealerWatch(view, send);
+  useTableSounds(view);
+  const [soundOn, setSoundOn] = useSoundOn();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("log");
   const [sitSeat, setSitSeat] = useState<number | null>(null);
@@ -315,11 +329,13 @@ function Room({ view, send, connected, avatar, onAvatar, onName }: { view: Table
               </select>
             </label>
           ) : <span className="gamename">{VARIANTS[cfg.variant] ? gameLabel(VARIANTS[cfg.variant], cfg) : cfg.variant}</span>}
+          <SoundToggle on={soundOn} set={setSoundOn} where="row" />
           {pendingVariant && <span className="pill warn">Next hand: {VARIANTS[pendingVariant] ? gameLabel(VARIANTS[pendingVariant], cfg) : pendingVariant}</span>}
         </div>
         <div className="top-actions">
           {view.you.isHost && view.status === "playing" && <button className="btn small" title="Freeze the game and every clock until you resume" onClick={() => send("host:pause", { paused: true })}>Pause</button>}
           {view.you.isHost && view.status === "paused" && <button className="btn small call" onClick={() => send("host:pause", { paused: false })}>Resume</button>}
+          <SoundToggle on={soundOn} set={setSoundOn} where="top" />
           <button className="btn small" onClick={copy}>Copy link</button>
           <button className="btn small" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? "Close" : "Menu"}</button>
         </div>
@@ -339,6 +355,7 @@ function Room({ view, send, connected, avatar, onAvatar, onName }: { view: Table
             <div className="startrow"><button className="btn call big" onClick={() => send("host:start")}>Start game</button></div>
           )}
           {view.you.isHost && view.pendingAward && <AwardPanel view={view} pa={view.pendingAward} send={send} />}
+          <PreActions view={view} onAction={(a) => send("action", a)} />
           <ActionBar view={view} onAction={(a) => send("action", a)} onExtend={() => send("extendTime")} />
           {me && !isTourney && me.stack === 0 && !me.inHand && (
             <p className="note busted" role="status">Out of chips. Ask the dealer to add money.</p>
