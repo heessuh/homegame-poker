@@ -189,8 +189,10 @@ const VIEW_DEALER_LOG = 100;
 const HISTORY_CAP = 2000;
 const SNAPSHOT_VERSION = 1;
 const FIRST_HAND_DELAY = 1000;
-const SHOWDOWN_DELAY = 4000;
-const FOLD_DELAY = 3500; // long enough to read the rabbit-hunt cards
+/** Quiet gap after the result is read, so the host can change the game before the next deal. */
+const BREAK_MS = 5000;
+const SHOWDOWN_DELAY = 4000 + BREAK_MS;
+const FOLD_DELAY = 3500 + BREAK_MS; // long enough to read the rabbit-hunt cards, then the break
 const MIN_DELAY = 1000;
 const HOST_HANDOFF_MS = 60_000;
 
@@ -296,6 +298,8 @@ export class Table {
   private dealerLog: DealerEntry[] = [];
   private dealerHead = "";
   private startTimer: unknown = null;
+  /** When the scheduled next hand will be dealt (server clock); only its distance from now is sent to clients. */
+  private startDueAt: number | null = null;
   private actionTimer: unknown = null;
   private endedAt: number | null = null;
   private nextDelay = FIRST_HAND_DELAY;
@@ -1318,6 +1322,7 @@ export class Table {
   private clearStartTimer(): void {
     if (this.startTimer !== null) this.sched.clearTimeout(this.startTimer);
     this.startTimer = null;
+    this.startDueAt = null;
   }
 
   private changed(): void {
@@ -1336,8 +1341,10 @@ export class Table {
     if (this.isTourney() && this.t?.status !== "running") return;
     if (this.eligible().length < 2) return;
     const delay = this.endedAt === null ? FIRST_HAND_DELAY : Math.max(MIN_DELAY, this.nextDelay - (this.now() - this.endedAt));
+    this.startDueAt = this.now() + delay;
     this.startTimer = this.sched.setTimeout(() => {
       this.startTimer = null;
+      this.startDueAt = null;
       this.beginHand();
       this.changed();
     }, delay);
@@ -2157,6 +2164,7 @@ export class Table {
       locked: this.locked,
       tournament: this.tournamentView(),
       siteNotice: this.budgetNotice,
+      nextHandInMs: this.startDueAt !== null ? Math.max(0, this.startDueAt - this.now()) : null,
       fairness: this.deckSource ? null : { nextHandNumber: this.handCounter + 1, serverSeedHash: seedHash(this.nextServerSeed) },
     };
   }

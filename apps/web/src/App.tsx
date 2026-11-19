@@ -280,6 +280,8 @@ function Room({ view, send, connected, avatar, onAvatar, onName }: { view: Table
   const lateClosed = view.tournament ? view.tournament.status === "finished" || (view.tournament.status === "running" && !view.tournament.lateRegOpen) : false;
   const changeAvatar = (a: string | null) => { onAvatar(a); send("setAvatar", { avatar: a }); };
   const pendingVariant = view.pendingConfig && view.pendingConfig.variant !== cfg.variant ? view.pendingConfig.variant : null;
+  // The break between hands: the result is up and the next deal is scheduled, so the host can still change the game.
+  const onBreak = view.status === "playing" && !!view.hand?.winners && view.nextHandInMs != null;
   const copy = () => {
     const url = location.origin + location.pathname + "#" + view.tableId;
     void navigator.clipboard?.writeText(url).catch(() => undefined);
@@ -304,7 +306,7 @@ function Room({ view, send, connected, avatar, onAvatar, onName }: { view: Table
         <div className="gamerow">
           {view.you.isHost ? (
             // The select is invisible and sits on top of the text: a native select can't wrap its label, plain text can.
-            <label className="gamepick">
+            <label className={`gamepick${onBreak ? " breakglow" : ""}`} title={onBreak ? "Pick the next game now, before the deal" : undefined}>
               <span className="gamepick-text">{VARIANTS[cfg.variant] ? gameLabel(VARIANTS[cfg.variant], cfg) : cfg.variant}</span>
               <span className="gamepick-caret" aria-hidden="true">▾</span>
               <select value={cfg.variant} aria-label="Game"

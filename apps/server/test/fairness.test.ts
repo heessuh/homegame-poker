@@ -52,7 +52,7 @@ describe("provably fair deals", () => {
     const second = commitment(r);
     expect(second.nextHandNumber).toBe(2);
     expect(second.serverSeedHash).not.toBe(first);
-    r.clock.advance(5000);
+    r.clock.advance(10_000);
     checkDown(r);
     const b = view(r).lastHand!;
     expect(b.handNumber).toBe(2);
@@ -162,7 +162,7 @@ describe("provably fair deals", () => {
     expect(b.fair).toEqual(a.fair);
     expect(b.reveal.deck).toEqual(deriveDeck(b.fair!.serverSeed, b.fair!.material));
     // Hand 2 uses the carried-over seeds and the carried-over server seed.
-    clock.advance(5000);
+    clock.advance(10_000);
     checkDown(r2);
     const h2 = view(r2).lastHand!;
     expect(h2.fair!.serverSeedHash).toBe(nextHash);

@@ -780,3 +780,9 @@ html, body { font-size: 16px; }
   .table-wrap .cardrow.hole[data-n="4"] > .card.lg + .card.lg, .table-wrap .cardrow.hole[data-n="5"] > .card.lg + .card.lg { margin-left: calc(var(--clg) * -.64); }
   .table-wrap .cardrow.hole.fan { margin-bottom: calc(var(--csm) * -.3); }
 }
+
+/* Break between hands: countdown in the hand line; the host's game menu glows so it can be changed before the deal. */
+.phase .nexthand { color: var(--gold2); font-weight: 700; }
+.gamepick.breakglow { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(227, 183, 101, .35), 0 0 18px rgba(227, 183, 101, .45); animation: breakglow 1.2s ease-in-out infinite alternate; }
+@keyframes breakglow { from { box-shadow: 0 0 0 1px rgba(227, 183, 101, .25), 0 0 8px rgba(227, 183, 101, .25); } to { box-shadow: 0 0 0 2px rgba(227, 183, 101, .55), 0 0 20px rgba(227, 183, 101, .55); } }
+@media (prefers-reduced-motion: reduce) { .gamepick.breakglow { animation: none; } }

@@ -360,6 +360,8 @@ export interface TableView {
   tournament: TournamentView | null; // null in cash mode
   /** Site-wide message (e.g. the monthly budget has been reached); null normally. */
   siteNotice: string | null;
+  /** Time until the next hand is dealt, when one is scheduled (the break after a hand). Optional for old servers. */
+  nextHandInMs?: number | null;
   /** Commitment to the server seed for the NEXT hand; clients answer with a "seed" event. Null when fair shuffling is off (test decks). */
   fairness: { nextHandNumber: number; serverSeedHash: string } | null;
 }
