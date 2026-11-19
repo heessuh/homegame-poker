@@ -130,7 +130,9 @@ export function Table({ view, onSit, onMe, send }: Props) {
             )}
             {!stud && rabbit.length > 0 && <div className="rabbitlabel muted small">Would have come</div>}
             {stud && studStatus && <div className="studstatus">{studStatus}</div>}
-            <div className="phase">Hand #{hand.handNumber} · {stud ? (STUD_STREETS[hand.phase] ?? hand.phase) : hand.phase}</div>
+            <div className="phase">Hand #{hand.handNumber} · {hand.winners && view.status === "playing" && view.nextHandInMs != null
+              ? <NextHandIn view={view} />
+              : stud ? (STUD_STREETS[hand.phase] ?? hand.phase) : hand.phase}</div>
             {paused && !hand.winners && <div className="pausedbadge" role="status">Paused{view.you.isHost ? " · press Resume to continue" : " by the host"}</div>}
             {hand.winners && !pa && <WinBanner view={view} winners={hand.winners} />}
             {pa && <AwardAnnounce view={view} winners={shownWinners} />}
@@ -334,6 +336,15 @@ function SeatBlock(props: {
 }
 
 /** Who won, how much, and with which hand: shown in the middle of the table when a hand ends. */
+/** The break between hands: counts down to the next deal (the host can change the game meanwhile). */
+function NextHandIn({ view }: { view: TableView }) {
+  // Counts down from when this view arrived; never compares device and server clocks.
+  const recvAt = useMemo(() => Date.now(), [view]);
+  const now = useNow(true);
+  const secs = Math.max(0, Math.ceil(((view.nextHandInMs ?? 0) - Math.max(0, now - recvAt)) / 1000));
+  return <span className="nexthand">{secs > 0 ? `next hand in ${secs}s` : "dealing…"}</span>;
+}
+
 function WinBanner({ view, winners }: { view: TableView; winners: WinnerView[] }) {
   const groups = new Map<string, { id: string; amount: number; half: WinnerView["half"]; hand: string | null }>();
   for (const w of winners) {

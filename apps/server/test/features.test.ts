@@ -254,7 +254,7 @@ describe("host timer controls", () => {
     const host = r.ids[0]!;
     r.table.hostStart(host);
     for (let i = 0; i < 3; i++) {
-      r.clock.advance(5000);
+      r.clock.advance(10_000);
       const act = actor(r)!;
       const other = r.ids.find((x) => x !== act)!;
       expect(() => r.table.hostForceTimeout(host, other)).toThrow(UserError);
@@ -321,7 +321,7 @@ describe("tournament", () => {
     expect(v.log).toContain("Level 2: 20/40");
     expect(betSum(r)).toBe(30); // current hand keeps its blinds
     foldAround(r);
-    r.clock.advance(5000);
+    r.clock.advance(10_000);
     expect(view(r).hand!.handNumber).toBe(2);
     expect(betSum(r)).toBe(60);
     r.clock.advance(120_000);

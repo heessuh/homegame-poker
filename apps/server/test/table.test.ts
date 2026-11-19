@@ -95,7 +95,7 @@ describe("hands", () => {
     expect(v.ledger.map((l) => l.net).reduce((a, b) => a + b, 0)).toBe(0);
     expect(v.log.some((l) => /wins \d+/.test(l))).toBe(true);
     expect(v.log.some((l) => l.startsWith("Flop: "))).toBe(true);
-    r.clock.advance(3000);
+    r.clock.advance(8000);
     expect(r.table.viewFor(r.ids[0]!).hand!.handNumber).toBe(1);
     expect(r.table.viewFor(r.ids[0]!).hand!.winners).not.toBeNull();
     r.clock.advance(1000);
@@ -109,7 +109,7 @@ describe("hands", () => {
     r.table.hostStart(r.ids[0]!);
     r.clock.advance(1000);
     foldAround(r);
-    r.clock.advance(3499);
+    r.clock.advance(8499);
     expect(r.table.viewFor(r.ids[0]!).hand!.handNumber).toBe(1);
     r.clock.advance(1);
     expect(r.table.viewFor(r.ids[0]!).hand!.handNumber).toBe(2);
@@ -121,7 +121,7 @@ describe("hands", () => {
     r.table.hostStart(r.ids[0]!);
     const buttons: number[] = [];
     for (let i = 0; i < 4; i++) {
-      r.clock.advance(5000);
+      r.clock.advance(10_000);
       const v = r.table.viewFor(r.ids[0]!);
       buttons.push(v.seats.find((s) => s?.isButton)!.seat);
       foldAround(r);
@@ -232,7 +232,7 @@ describe("config and host", () => {
     expect(v.config.bigBlind).toBe(2);
     expect(v.pendingConfig?.bigBlind).toBe(4);
     foldAround(r);
-    r.clock.advance(4000);
+    r.clock.advance(9000);
     v = r.table.viewFor(host);
     expect(v.config.bigBlind).toBe(4);
     expect(v.pendingConfig).toBeNull();
@@ -394,7 +394,7 @@ describe("privacy and fairness", () => {
     expect(v.lastHand!.deckHash).toBe(hash);
     expect(verifyDeck(hash, v.lastHand!.reveal.deck, v.lastHand!.reveal.salt)).toBe(true);
     expect(v.lastHand!.winners.length).toBeGreaterThan(0);
-    r.clock.advance(4000);
+    r.clock.advance(9000);
     const v2 = r.table.viewFor(r.ids[0]!);
     expect(v2.seats.find((s) => s && s.playerId !== r.ids[0])!.holeCards).toBeNull();
     expect(v2.lastHand!.handNumber).toBe(1);
